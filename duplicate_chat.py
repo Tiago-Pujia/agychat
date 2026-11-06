@@ -305,9 +305,8 @@ def export_conversation(source_id_or_title, output_path=None):
 
     size_mb = os.path.getsize(output_path) / (1024 * 1024)
     print(f"\n✅ ¡Exportación completada con éxito! ({size_mb:.2f} MB)")
-    print(f"   Archivo generado: {output_path}")
     print(f"   Para importarlo en otra máquina ejecuta:")
-    print(f"   duplicate-chat-antigravity --import \"{output_path}\"\n")
+    print(f"   agychat -i \"{output_path}\"\n")
     return output_path
 
 
@@ -416,29 +415,72 @@ def import_conversation(
                         remapped_workspaces = [f"file://{cwd}"]
 
         # Resolver project_id en destino
-        con = sqlite3.connect(SUMMARIES_DB, timeout=30.0)
         target_project_id = ""
         if remapped_workspaces:
-            p_row = con.execute(
-                "SELECT project_id FROM conversation_summaries WHERE workspace_uris LIKE ? AND project_id != '' LIMIT 1",
-                (f"%{remapped_workspaces[0]}%",),
-            ).fetchone()
-            if p_row:
-                target_project_id = p_row[0]
+            # 1. Buscar primero en los proyectos registrados en Antigravity (~/.gemini/config/projects)
+            projects_dir = os.path.expanduser("~/.gemini/config/projects")
+            if os.path.exists(projects_dir):
+                norm_uri = remapped_workspaces[0].rstrip("/").lower()
+                for fname in os.listdir(projects_dir):
+                    if not fname.endswith(".json"):
+                        continue
+                    try:
+                        with open(os.path.join(projects_dir, fname), "r", encoding="utf-8") as pf:
+                            pdata = json.load(pf)
+                        resources = pdata.get("projectResources", {}).get("resources", [])
+                        for r in resources:
+                            uri = r.get("folderUri") or r.get("gitFolder", {}).get("folderUri", "")
+                            if uri and uri.rstrip("/").lower() == norm_uri:
+                                target_project_id = pdata.get("id", "")
+                                break
+                        if target_project_id:
+                            break
+                    except Exception:
+                        pass
+
+            # 2. Si no se encontró, buscar en los chats existentes en conversation_summaries.db
+            if not target_project_id:
+                con = sqlite3.connect(SUMMARIES_DB, timeout=30.0)
+                p_row = con.execute(
+                    "SELECT project_id FROM conversation_summaries WHERE workspace_uris LIKE ? AND project_id != '' LIMIT 1",
+                    (f"%{remapped_workspaces[0]}%",),
+                ).fetchone()
+                con.close()
+                if p_row:
+                    target_project_id = p_row[0]
 
         if not target_project_id:
             target_project_id = manifest.get("project_id") or str(uuid.uuid4())
+
+        orig_project_id = manifest.get("project_id", "")
 
         print(f"\n📥 Importando chat en Antigravity:")
         print(f"   • Título:    \"{final_title}\"")
         print(f"   • ID:        {target_cid}")
         print(f"   • Workspace: {remapped_workspaces[0] if remapped_workspaces else '(ninguno)'}")
+        print(f"   • Project:   {target_project_id}")
 
-        # 1. Copiar base de datos de la conversación y actualizar cascade_id
+        # 1. Copiar base de datos de la conversación y actualizar cascade_id y metadata blob
         dest_db = os.path.join(CONVERSATIONS_DIR, f"{target_cid}.db")
         shutil.copyfile(db_file, dest_db)
         conv_con = sqlite3.connect(dest_db)
         conv_con.execute("UPDATE trajectory_meta SET cascade_id = ?", (target_cid,))
+        
+        # Parchear project_id y cascade_id en trajectory_metadata_blob si cambiaron
+        try:
+            cur = conv_con.cursor()
+            cur.execute("SELECT data FROM trajectory_metadata_blob WHERE id = 'main'")
+            b_row = cur.fetchone()
+            if b_row and b_row[0]:
+                blob = b_row[0]
+                if orig_project_id and target_project_id and orig_project_id != target_project_id:
+                    blob = blob.replace(orig_project_id.encode("utf-8"), target_project_id.encode("utf-8"))
+                if target_cid != orig_cid and orig_cid:
+                    blob = blob.replace(orig_cid.encode("utf-8"), target_cid.encode("utf-8"))
+                conv_con.execute("UPDATE trajectory_metadata_blob SET data = ? WHERE id = 'main'", (blob,))
+        except Exception:
+            pass
+
         conv_con.commit()
         conv_con.close()
 
@@ -469,6 +511,14 @@ def import_conversation(
         summary_dict["workspace_uris"] = json.dumps(remapped_workspaces)
         summary_dict["project_id"] = target_project_id
 
+        # Parchear raw_summary_bytes si cambiaron IDs
+        if raw_summary_bytes:
+            if orig_project_id and target_project_id and orig_project_id != target_project_id:
+                raw_summary_bytes = raw_summary_bytes.replace(orig_project_id.encode("utf-8"), target_project_id.encode("utf-8"))
+            if target_cid != orig_cid and orig_cid:
+                raw_summary_bytes = raw_summary_bytes.replace(orig_cid.encode("utf-8"), target_cid.encode("utf-8"))
+
+        con = sqlite3.connect(SUMMARIES_DB, timeout=30.0)
         col_info = con.execute("PRAGMA table_info(conversation_summaries)").fetchall()
         valid_cols = [c[1] for c in col_info]
 
@@ -482,7 +532,23 @@ def import_conversation(
 
         con.execute(f"INSERT OR REPLACE INTO conversation_summaries ({cols_str}) VALUES ({placeholders})", vals)
         con.commit()
+        try:
+            con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except Exception:
+            pass
         con.close()
+
+        # Parchear agyhub_summaries_proto.pb si existe
+        pb_path = os.path.join(BASE_DIR, "agyhub_summaries_proto.pb")
+        if os.path.exists(pb_path) and orig_project_id and target_project_id and orig_project_id != target_project_id:
+            try:
+                with open(pb_path, "rb") as pbf:
+                    pb_content = pbf.read()
+                pb_content = pb_content.replace(orig_project_id.encode("utf-8"), target_project_id.encode("utf-8"))
+                with open(pb_path, "wb") as pbf:
+                    pbf.write(pb_content)
+            except Exception:
+                pass
 
         # 5. Notificar a language_server si está en ejecución
         port, csrf_token = get_live_ls_info()
@@ -500,48 +566,50 @@ def import_conversation(
 
 def print_help():
     print("""
-Antigravity Duplicate Chat
-==========================
+agychat (Antigravity Chat Manager)
+==================================
 Herramienta CLI para ramificar, duplicar, exportar e importar chats
 de Google Antigravity entre proyectos o computadoras.
 
 Uso:
-  # 1. Duplicar una conversación existente (en caliente):
-  duplicate-chat-antigravity "<Nombre o ID>" ["<Nombre de la Copia>"]
-
-  # 2. Exportar conversación a un archivo portátil (.agychat):
-  duplicate-chat-antigravity -e "<Nombre o ID>" [-o archivo_salida.agychat]
-
-  # 3. Importar conversación desde un archivo portátil:
-  duplicate-chat-antigravity -i archivo.agychat [-t "Nuevo Título"] [-w /ruta/al/proyecto]
+  agychat -l | --list
+  agychat -d | --duplicate "<CHAT>" [-t | --title "<TITULO>"]
+  agychat -e | --export "<CHAT>" [-o | --output <ARCHIVO>]
+  agychat -i | --import <ARCHIVO> [-t | --title "<TITULO>"] [-w | --workspace <RUTA>]
+  agychat -h | --help
 
 Opciones:
-  -e, --export [CHAT]       Exporta un chat a archivo comprimido (.agychat).
-  -o, --output ARCHIVO      Ruta del archivo de salida para la exportación.
-  -i, --import ARCHIVO      Importa un chat desde un archivo .agychat o tar.gz.
-  -t, --title TITULO        Título personalizado al importar o duplicar.
-  -w, --workspace RUTA      Asigna la ruta del workspace local en el equipo de destino.
+  -h, --help                Muestra esta ayuda.
+  -l, --list                Lista todas las conversaciones registradas.
+  -d, --duplicate CHAT      Duplica un chat en tiempo real por título o ID.
+  -e, --export CHAT         Exporta un chat a un archivo portátil (.agychat).
+  -i, --import ARCHIVO      Importa un chat desde un archivo .agychat o .tar.gz.
+  -t, --title TITULO        Título personalizado al duplicar o importar.
+  -o, --output ARCHIVO      Ruta del archivo de salida al exportar.
+  -w, --workspace RUTA      Ruta del workspace local en la máquina de destino al importar.
       --new-id              Fuerza la creación de un nuevo UUID al importar.
       --overwrite           Sobrescribe el chat si el UUID coincide con uno existente.
-  -l, --list                Muestra todos los chats disponibles en Antigravity.
-  -h, --help                Muestra esta ayuda.
 
 Ejemplos:
-  1) Duplicar con sufijo '(Copia)':
-     duplicate-chat-antigravity "Analisis Inicial"
+  1) Listar chats disponibles:
+     agychat -l
+     agychat --list
 
-  2) Duplicar con nuevo título:
-     duplicate-chat-antigravity "Analisis Inicial" "Modulo Autenticacion"
+  2) Duplicar con sufijo '(Copia)':
+     agychat -d "Analisis Inicial"
+     agychat --duplicate "Analisis Inicial"
 
-  3) Exportar para compartir con un colega o mover de equipo:
-     duplicate-chat-antigravity -e "Analisis Inicial"
-     # Genera: Analisis_Inicial.agychat
+  3) Duplicar con nuevo título:
+     agychat -d "Analisis Inicial" -t "Modulo 2 - Refactor"
+     agychat --duplicate "Analisis Inicial" --title "Modulo 2 - Refactor"
 
-  4) Importar en otra máquina asignándole el proyecto local:
-     duplicate-chat-antigravity -i Analisis_Inicial.agychat -w ~/Proyectos/mi-repo
+  4) Exportar a archivo comprimido portátil (.agychat):
+     agychat -e "Analisis Inicial"
+     agychat --export "Analisis Inicial" -o ~/Descargas/backup.agychat
 
-  5) Listar chats disponibles:
-     duplicate-chat-antigravity --list
+  5) Importar en otra máquina:
+     agychat -i backup.agychat
+     agychat --import backup.agychat -t "Nuevo Titulo" -w ~/Proyectos/mi-repo
 """)
 
 
@@ -549,6 +617,7 @@ def main():
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("-h", "--help", action="store_true")
     parser.add_argument("-l", "--list", action="store_true")
+    parser.add_argument("-d", "--duplicate", nargs="?", const="", default=None)
     parser.add_argument("-e", "--export", nargs="?", const="", default=None)
     parser.add_argument("-o", "--output", default=None)
     parser.add_argument("-i", "--import", dest="import_file", default=None)
@@ -568,7 +637,20 @@ def main():
         list_conversations()
         sys.exit(0)
 
-    # Modo Exportar
+    # Modo Duplicar con -d / --duplicate
+    if args.duplicate is not None:
+        target = args.duplicate.strip()
+        if not target and args.positional:
+            target = args.positional.pop(0)
+        if not target:
+            print("❌ Error: Debes especificar el nombre o ID del chat a duplicar.")
+            print("   Uso: agychat -d \"<Nombre del Chat>\" [-t \"<Nuevo Título>\"]")
+            sys.exit(1)
+        custom_title = args.title or (args.positional[0] if args.positional else None)
+        duplicate_conversation(target, custom_title)
+        sys.exit(0)
+
+    # Modo Exportar con -e / --export
     if args.export is not None:
         target = args.export.strip()
         output_file = args.output
@@ -578,12 +660,12 @@ def main():
             output_file = args.positional.pop(0)
         if not target:
             print("❌ Error: Debes especificar el nombre o ID del chat a exportar.")
-            print("   Uso: duplicate-chat-antigravity -e \"<Nombre del Chat>\" [archivo.agychat]")
+            print("   Uso: agychat -e \"<Nombre del Chat>\" [-o archivo.agychat]")
             sys.exit(1)
         export_conversation(target, output_file)
         sys.exit(0)
 
-    # Modo Importar
+    # Modo Importar con -i / --import
     if args.import_file:
         custom_title = args.title
         if not custom_title and args.positional:
@@ -597,7 +679,7 @@ def main():
         )
         sys.exit(0)
 
-    # Modo Duplicar (comportamiento posicional por defecto)
+    # Modo Duplicar (compatibilidad posicional por defecto sin flags)
     if args.positional:
         target = args.positional[0]
         custom_title = args.title or (args.positional[1] if len(args.positional) > 1 else None)

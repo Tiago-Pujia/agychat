@@ -1,4 +1,4 @@
-# Antigravity Duplicate Chat
+# agychat (Antigravity Chat Manager)
 
 Herramienta de línea de comandos para **ramificar, duplicar, exportar e importar** conversaciones en **Google Antigravity**, manteniendo el historial completo de análisis, transcripciones y artefactos sin necesidad de volver a leer ni indexar los contenidos del proyecto.
 
@@ -13,7 +13,7 @@ Cuando se desea:
 * **Compartir un chat completo con un colega** para que continúe trabajando desde el mismo punto.
 * **Mover tu contexto de una máquina a otra** (ej. de tu PC de escritorio a una laptop).
 
-Comenzar un chat nuevo obliga al modelo a escanear nuevamente todo el repositorio. Esta herramienta cubre ese vacío permitiendo clonar hilos localmente o empaquetarlos en archivos portátiles (`.agychat`) con un solo comando.
+Comenzar un chat nuevo obliga al modelo a escanear nuevamente todo el repositorio. Esta herramienta cubre ese vacío permitiendo clonar hilos localmente o empaquetarlos en archivos portátiles (`.agychat`) con comandos simples y directos.
 
 ---
 
@@ -23,7 +23,7 @@ Comenzar un chat nuevo obliga al modelo a escanear nuevamente todo el repositori
 * **Exportación portátil (.agychat):** Empaqueta la base de trayectoria SQLite, metadatos, transcripciones y artefactos del `brain` en un único archivo comprimido ultra liviano.
 * **Importación inteligente:**
   * Adapta de forma automática las rutas de inicio (`$HOME`) y repositorios entre diferentes usuarios o computadoras.
-  * Permite asociar explícitamente el chat al workspace local en el equipo de destino (`--workspace`).
+  * Permite asociar explícitamente el chat al workspace local en el equipo de destino (`-w` / `--workspace`).
   * Asocia el chat al proyecto correspondiente en la máquina receptora.
   * Prevención automática de colisiones de identificador (`UUID`).
 * **Búsqueda flexible:** Permite ubicar conversaciones por título exacto, coincidencia parcial o ID único.
@@ -36,8 +36,8 @@ Comenzar un chat nuevo obliga al modelo a escanear nuevamente todo el repositori
 1. Clonar el repositorio y acceder a la carpeta:
 
 ```bash
-git clone https://github.com/usuario/antigravity-duplicate-chat.git
-cd antigravity-duplicate-chat
+git clone https://github.com/Tiago-Pujia/Antigravity-Duplicate-Chat.git
+cd Antigravity-Duplicate-Chat
 ```
 
 2. Otorgar permisos de ejecución y ejecutar el instalador:
@@ -47,97 +47,111 @@ chmod +x install.sh
 ./install.sh
 ```
 
+El script registrará el comando principal **`agychat`** en `~/.local/bin` (junto con los alias `antigravity-chat` y `duplicate-chat-antigravity`).
+
 ---
 
 ## 💻 Ejemplos de Uso
 
-### 1. Duplicación local (en caliente)
-
-Crea una copia idéntica del chat agregando el sufijo `(Copia)`:
-
+### 1. Consultar ayuda
 ```bash
-duplicate-chat-antigravity "Analisis Inicial"
+agychat -h
+# o con la opción larga:
+agychat --help
 ```
 
-O define un nuevo título personalizado:
+---
+
+### 2. Listar conversaciones existentes
+Para consultar los títulos y UUIDs de todos los chats registrados actualmente en Antigravity:
 
 ```bash
-duplicate-chat-antigravity "Analisis Inicial" "Modulo 2 - Refactor Auth"
+agychat -l
+# o con la opción larga:
+agychat --list
 ```
+
+---
+
+### 3. Duplicar una conversación (en caliente)
+
+* **Copia automática con sufijo `(Copia)`:**
+  ```bash
+  agychat -d "Analisis Inicial"
+  # o con la opción larga:
+  agychat --duplicate "Analisis Inicial"
+  ```
+
+* **Copia asignando un nuevo título:**
+  ```bash
+  agychat -d "Analisis Inicial" -t "Modulo 2 - Refactor"
+  # o con la opción larga:
+  agychat --duplicate "Analisis Inicial" --title "Modulo 2 - Refactor"
+  ```
 
 > **Nota:** La búsqueda admite coincidencias parciales de título o el UUID de la conversación.
 
 ---
 
-### 2. Exportar una conversación entre computadoras
+### 4. Exportar una conversación a un archivo portátil
 
 Para empaquetar un chat en un archivo portátil (`.agychat`):
 
 ```bash
-duplicate-chat-antigravity -e "Analisis Inicial"
+agychat -e "Analisis Inicial"
+# o con la opción larga:
+agychat --export "Analisis Inicial"
 ```
 *(Generará automáticamente `Analisis_Inicial.agychat`).*
 
-También puedes especificar el nombre o ruta del archivo de salida:
+También puedes especificar el nombre o ruta del archivo de salida con `-o` o `--output`:
 
 ```bash
-duplicate-chat-antigravity -e "Analisis Inicial" -o ~/Descargas/chat_compartido.agychat
+agychat -e "Analisis Inicial" -o ~/Descargas/mi_chat.agychat
+# o con la opción larga:
+agychat --export "Analisis Inicial" --output ~/Descargas/mi_chat.agychat
 ```
 
 ---
 
-### 3. Importar una conversación en otra máquina
+### 5. Importar una conversación en otra computadora
 
-Una vez transferido el archivo a la otra computadora:
+Una vez transferido el archivo a la otra máquina:
 
 ```bash
 # Importación estándar (detecta automáticamente el workspace si el repo coincide):
-duplicate-chat-antigravity -i chat_compartido.agychat
+agychat -i mi_chat.agychat
+# o con la opción larga:
+agychat --import mi_chat.agychat
 
 # Importación asignando un título nuevo:
-duplicate-chat-antigravity -i chat_compartido.agychat -t "Investigación Traída de Desktop"
+agychat -i mi_chat.agychat -t "Investigación Traída de Laptop"
 
-# Importación forzando la ruta del proyecto en este equipo:
-duplicate-chat-antigravity -i chat_compartido.agychat -w ~/Proyectos/mi-repositorio
+# Importación vinculando a la ruta del proyecto local:
+agychat -i mi_chat.agychat -w ~/Proyectos/mi-repositorio
+
+# Forzar la generación de un nuevo UUID si hubiera conflicto:
+agychat -i mi_chat.agychat --new-id
 ```
 
 > **Carga en vivo:** Si Antigravity está abierto en la máquina de destino, el chat aparecerá de inmediato en la barra lateral. Si está cerrado, estará disponible la próxima vez que abras la aplicación.
 
 ---
 
-### 4. Listar conversaciones existentes
+## 📖 Referencia Completa de Banderas (Flags)
 
-Para consultar los títulos y UUIDs registrados actualmente en el entorno:
-
-```bash
-duplicate-chat-antigravity --list
-# o de forma abreviada:
-duplicate-chat-antigravity -l
-```
-
----
-
-### 5. Consultar ayuda
-
-```bash
-duplicate-chat-antigravity --help
-```
-
----
-
-## 📖 Referencia de Opciones CLI
-
-| Opción | Descripción |
-|---|---|
-| `-e, --export [CHAT]` | Exporta un chat a archivo comprimido (`.agychat`). |
-| `-o, --output ARCHIVO` | Ruta o nombre del archivo de salida al exportar. |
-| `-i, --import ARCHIVO` | Importa un chat desde un archivo `.agychat` o `.tar.gz`. |
-| `-t, --title TITULO` | Título personalizado al importar o duplicar. |
-| `-w, --workspace RUTA` | Ruta del proyecto local a vincular en la máquina de destino. |
-| `--new-id` | Fuerza la asignación de un nuevo UUID al importar. |
-| `--overwrite` | Sobrescribe el chat si el UUID coincide con uno existente. |
-| `-l, --list` | Muestra todos los chats registrados en Antigravity. |
-| `-h, --help` | Muestra la ayuda interactiva. |
+| Bandera Corta | Bandera Larga | Argumento | Descripción |
+|---|---|---|---|
+| `-h` | `--help` | *(ninguno)* | Muestra la ayuda interactiva. |
+| `-l` | `--list` | *(ninguno)* | Lista todos los chats disponibles con su UUID. |
+| `-d` | `--duplicate` | `<CHAT>` | Duplica un chat en caliente por título o ID. |
+| `-e` | `--export` | `<CHAT>` | Exporta un chat a archivo `.agychat`. |
+| `-i` | `--import` | `<ARCHIVO>` | Importa un chat desde archivo `.agychat`. |
+| `-t` | `--title` | `<TITULO>` | Título personalizado al duplicar o importar. |
+| `-o` | `--output` | `<ARCHIVO>` | Ruta del archivo de salida al exportar. |
+| `-w` | `--workspace` | `<RUTA>` | Ruta del proyecto local en destino al importar. |
+| | `--new-id` | *(ninguno)* | Fuerza la asignación de un nuevo UUID al importar. |
+| | `--overwrite` | *(ninguno)* | Sobrescribe el chat si el UUID ya existe en destino. |
 
 ---
 
@@ -151,7 +165,7 @@ duplicate-chat-antigravity --help
 
 ## 🗑️ Desinstalación
 
-Para retirar el comando del sistema:
+Para retirar el comando y sus enlaces simbólicos del sistema:
 
 ```bash
 chmod +x uninstall.sh
