@@ -697,14 +697,11 @@ class MainWindow(QMainWindow):
         )
 
         if reply == QMessageBox.StandardButton.Yes:
+            deleted_title = self.selected_title
             success = delete_conversation(self.selected_cid, force=True)
             if success:
-                QMessageBox.information(
-                    self,
-                    "Conversación Eliminada",
-                    f"El chat \"{self.selected_title}\" fue eliminado correctamente.",
-                )
                 self.refresh_data()
+                self.statusBar().showMessage(f"Conversación \"{deleted_title}\" eliminada.", 4000)
             else:
                 QMessageBox.critical(
                     self,
