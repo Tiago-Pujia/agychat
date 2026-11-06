@@ -317,6 +317,8 @@ class ImportModal(QDialog):
 
     def __init__(self, initial_file="", parent=None):
         super().__init__(parent)
+        if not isinstance(initial_file, str):
+            initial_file = ""
         self.setWindowTitle("Importar Chat")
         self.setFixedWidth(540)
         self.setModal(True)
@@ -454,12 +456,12 @@ class MainWindow(QMainWindow):
         top_bar.addWidget(self.search_edit, stretch=1)
 
         self.btn_refresh = QPushButton("🔄 Refrescar (-l)")
-        self.btn_refresh.clicked.connect(self.refresh_data)
+        self.btn_refresh.clicked.connect(lambda: self.refresh_data())
         top_bar.addWidget(self.btn_refresh)
 
         self.btn_import_top = QPushButton("📥 Importar (.agychat)")
         self.btn_import_top.setObjectName("primaryBtn")
-        self.btn_import_top.clicked.connect(self.open_import_dialog)
+        self.btn_import_top.clicked.connect(lambda: self.open_import_dialog())
         top_bar.addWidget(self.btn_import_top)
 
         main_layout.addLayout(top_bar)
@@ -543,6 +545,9 @@ class MainWindow(QMainWindow):
         """Lee la base de datos de SQLite y actualiza la tabla."""
         import sqlite3
 
+        if not isinstance(select_cid, str):
+            select_cid = None
+
         if not os.path.exists(SUMMARIES_DB):
             self.lbl_ls_status.setText("❌ No se encontró la base de datos de Antigravity.")
             return
@@ -558,7 +563,7 @@ class MainWindow(QMainWindow):
         self.conversations = [dict(r) for r in rows]
 
         # Re-aplicar filtro si hay búsqueda activa
-        query = self.search_input.text().strip() if hasattr(self, "search_input") else ""
+        query = self.search_edit.text().strip() if hasattr(self, "search_edit") else ""
         if query:
             self.filter_table(query)
         else:
@@ -776,6 +781,8 @@ class MainWindow(QMainWindow):
             )
 
     def open_import_dialog(self, prefill_file=""):
+        if not isinstance(prefill_file, str):
+            prefill_file = ""
         modal = ImportModal(prefill_file, self)
         if modal.exec() == QDialog.DialogCode.Accepted:
             opts = modal.get_options()
