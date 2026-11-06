@@ -137,6 +137,23 @@ def update_annotations_via_api(cascade_id, title, port, csrf_token):
         return False
 
 
+def delete_via_api(cascade_id, port, csrf_token):
+    """Notifica a language_server para eliminar y descargar la conversación en vivo."""
+    ctx = ssl._create_unverified_context()
+    headers = {
+        "Content-Type": "application/json",
+        "X-Codeium-Csrf-Token": csrf_token,
+    }
+    url = f"https://127.0.0.1:{port}/exa.language_server_pb.LanguageServerService/DeleteCascadeTrajectory"
+    data = json.dumps({"cascade_id": cascade_id}).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers=headers)
+    try:
+        urllib.request.urlopen(req, timeout=5, context=ctx)
+        return True
+    except Exception:
+        return False
+
+
 def find_conversation(source_id_or_title):
     """Busca una conversación en la base de datos de resúmenes por ID o título."""
     if not os.path.exists(SUMMARIES_DB):
@@ -205,6 +222,77 @@ def duplicate_conversation(source_id_or_title, custom_new_title=None):
     except Exception as e:
         print(f"\n❌ Error al duplicar en vivo: {e}\n")
         return None
+
+
+def delete_conversation(source_id_or_title, force=False):
+    """Elimina permanentemente una conversación tanto en caliente como de la base de datos y disco."""
+    if not os.path.exists(SUMMARIES_DB):
+        print("❌ Error: No se encontró la base de datos de Antigravity.")
+        return False
+
+    row = find_conversation(source_id_or_title)
+    if not row:
+        print(f"\n❌ Error: No se encontró ningún chat que coincida con '{source_id_or_title}'.")
+        list_conversations()
+        return False
+
+    cid = row["conversation_id"]
+    title = row["title"] or "(Sin título)"
+
+    if not force:
+        try:
+            confirm = input(f"⚠️  ¿Estás seguro de que deseas eliminar permanentemente \"{title}\"? [s/N]: ")
+            if confirm.lower() not in ("s", "si", "sí", "y", "yes"):
+                print("Operación cancelada.")
+                return False
+        except (KeyboardInterrupt, EOFError):
+            print("\nOperación cancelada.")
+            return False
+
+    print(f"\n🗑️  Eliminando chat:")
+    print(f"   • Título: \"{title}\"")
+    print(f"   • ID:     {cid}")
+
+    # 1. Notificar a language_server para descargar de memoria y actualizar la UI de Antigravity
+    port, csrf_token = get_live_ls_info()
+    if port and csrf_token:
+        delete_via_api(cid, port, csrf_token)
+
+    # 2. Eliminar fila de conversation_summaries.db
+    con = sqlite3.connect(SUMMARIES_DB, timeout=30.0)
+    con.execute("DELETE FROM conversation_summaries WHERE conversation_id = ?", (cid,))
+    con.commit()
+    try:
+        con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    except Exception:
+        pass
+    con.close()
+
+    # 3. Eliminar archivos de disco
+    for ext in ("", "-wal", "-shm"):
+        db_f = os.path.join(CONVERSATIONS_DIR, f"{cid}.db{ext}")
+        if os.path.exists(db_f):
+            try:
+                os.remove(db_f)
+            except Exception:
+                pass
+
+    annot_f = os.path.join(ANNOTATIONS_DIR, f"{cid}.pbtxt")
+    if os.path.exists(annot_f):
+        try:
+            os.remove(annot_f)
+        except Exception:
+            pass
+
+    brain_d = os.path.join(BRAIN_DIR, cid)
+    if os.path.exists(brain_d):
+        try:
+            shutil.rmtree(brain_d)
+        except Exception:
+            pass
+
+    print(f"✅ ¡Listo! La conversación \"{title}\" ha sido eliminada por completo.\n")
+    return True
 
 
 def export_conversation(source_id_or_title, output_path=None):
@@ -576,6 +664,7 @@ Uso:
   agychat -d | --duplicate "<CHAT>" [-t | --title "<TITULO>"]
   agychat -e | --export "<CHAT>" [-o | --output <ARCHIVO>]
   agychat -i | --import <ARCHIVO> [-t | --title "<TITULO>"] [-w | --workspace <RUTA>]
+  agychat -D | --delete "<CHAT>" [-f | --force]
   agychat -g | --gui
   agychat -h | --help
 
@@ -586,6 +675,8 @@ Opciones:
   -d, --duplicate CHAT      Duplica un chat en tiempo real por título o ID.
   -e, --export CHAT         Exporta un chat a un archivo portátil (.agychat).
   -i, --import ARCHIVO      Importa un chat desde un archivo .agychat o .tar.gz.
+  -D, --delete CHAT         Elimina permanentemente una conversación por título o ID.
+  -f, --force               No solicita confirmación antes de eliminar.
   -t, --title TITULO        Título personalizado al duplicar o importar.
   -o, --output ARCHIVO      Ruta del archivo de salida al exportar.
   -w, --workspace RUTA      Ruta del workspace local en la máquina de destino al importar.
@@ -616,6 +707,10 @@ Ejemplos:
   6) Importar en otra máquina:
      agychat -i backup.agychat
      agychat --import backup.agychat -t "Nuevo Titulo" -w ~/Proyectos/mi-repo
+
+  7) Eliminar una conversación:
+     agychat -D "Analisis Inicial"
+     agychat --delete "Analisis Inicial" --force
 """)
 
 
@@ -628,6 +723,8 @@ def main():
     parser.add_argument("-e", "--export", nargs="?", const="", default=None)
     parser.add_argument("-o", "--output", default=None)
     parser.add_argument("-i", "--import", dest="import_file", default=None)
+    parser.add_argument("-D", "--delete", nargs="?", const="", default=None)
+    parser.add_argument("-f", "--force", action="store_true")
     parser.add_argument("-t", "--title", default=None)
     parser.add_argument("-w", "--workspace", default=None)
     parser.add_argument("--new-id", action="store_true")
@@ -653,6 +750,18 @@ def main():
 
     if args.list:
         list_conversations()
+        sys.exit(0)
+
+    # Modo Eliminar con -D / --delete
+    if args.delete is not None:
+        target = args.delete.strip()
+        if not target and args.positional:
+            target = args.positional.pop(0)
+        if not target:
+            print("❌ Error: Debes especificar el nombre o ID del chat a eliminar.")
+            print("   Uso: agychat -D \"<Nombre del Chat>\" [-f | --force]")
+            sys.exit(1)
+        delete_conversation(target, force=args.force)
         sys.exit(0)
 
     # Modo Duplicar con -d / --duplicate

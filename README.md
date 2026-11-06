@@ -74,6 +74,7 @@ Puedes abrir la aplicación gráfica de dos formas:
 * **Duplicar con doble clic:** Haz doble clic sobre cualquier chat o usa el botón **Duplicar (-d)** para ramificarlo al instante con un nuevo nombre.
 * **Exportar con diálogo nativo:** Elige la carpeta donde guardar el `.agychat` mediante el explorador de archivos del sistema.
 * **Importar y Drag & Drop:** Haz clic en **Importar** o simplemente arrastra un archivo `.agychat` dentro de la ventana para cargarlo en caliente.
+* **Eliminar con confirmación:** Selecciona un chat y presiona **Eliminar (-D)** (o usa el clic derecho) para retirarlo de Antigravity y liberar espacio en disco de forma segura.
 
 ---
 
@@ -153,7 +154,19 @@ agychat -i mi_chat.agychat -w ~/Proyectos/mi-repositorio
 agychat -i mi_chat.agychat --new-id
 ```
 
-> **Carga en vivo:** Si Antigravity está abierto en la máquina de destino, el chat aparecerá de inmediato en la barra lateral. Si está cerrado, estará disponible la próxima vez que abras la aplicación.
+### 6. Eliminar una conversación
+
+Elimina permanentemente una conversación tanto en Antigravity (descargándola de memoria) como de la base de datos y disco:
+
+```bash
+# Solicita confirmación antes de eliminar:
+agychat -D "Analisis Inicial"
+agychat --delete "Analisis Inicial"
+
+# Eliminar directamente sin confirmación:
+agychat -D "Analisis Inicial" -f
+agychat --delete "Analisis Inicial" --force
+```
 
 ---
 
@@ -167,6 +180,8 @@ agychat -i mi_chat.agychat --new-id
 | `-d` | `--duplicate` | `<CHAT>` | Duplica un chat en caliente por título o ID. |
 | `-e` | `--export` | `<CHAT>` | Exporta un chat a archivo `.agychat`. |
 | `-i` | `--import` | `<ARCHIVO>` | Importa un chat desde archivo `.agychat`. |
+| `-D` | `--delete` | `<CHAT>` | Elimina permanentemente una conversación. |
+| `-f` | `--force` | *(ninguno)* | No solicita confirmación al eliminar un chat. |
 | `-t` | `--title` | `<TITULO>` | Título personalizado al duplicar o importar. |
 | `-o` | `--output` | `<ARCHIVO>` | Ruta del archivo de salida al exportar. |
 | `-w` | `--workspace` | `<RUTA>` | Ruta del proyecto local en destino al importar. |

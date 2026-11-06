@@ -37,6 +37,7 @@ from PyQt6.QtWidgets import (
 from duplicate_chat import (
     CONVERSATIONS_DIR,
     SUMMARIES_DB,
+    delete_conversation,
     duplicate_conversation,
     export_conversation,
     find_conversation,
@@ -121,6 +122,24 @@ QPushButton#successBtn {
 }
 QPushButton#successBtn:hover {
     background-color: #047857;
+}
+
+/* Botón peligro / eliminar */
+QPushButton#dangerBtn {
+    background-color: #1e2229;
+    border: 1px solid #7f1d1d;
+    color: #f87171;
+    font-weight: 500;
+}
+QPushButton#dangerBtn:hover {
+    background-color: #991b1b;
+    border: 1px solid #ef4444;
+    color: #ffffff;
+}
+QPushButton#dangerBtn:disabled {
+    background-color: #16181d;
+    border: 1px solid #1f232b;
+    color: #475569;
 }
 
 /* Tabla */
@@ -491,6 +510,12 @@ class MainWindow(QMainWindow):
         self.btn_exp.clicked.connect(self.action_export)
         action_bar.addWidget(self.btn_exp)
 
+        self.btn_del = QPushButton("🗑️ Eliminar (-D)")
+        self.btn_del.setObjectName("dangerBtn")
+        self.btn_del.setEnabled(False)
+        self.btn_del.clicked.connect(self.action_delete)
+        action_bar.addWidget(self.btn_del)
+
         main_layout.addLayout(action_bar)
 
         # 4. Barra de estado inferior
@@ -613,7 +638,8 @@ class MainWindow(QMainWindow):
             self.selected_title = None
             self.btn_dup.setEnabled(False)
             self.btn_exp.setEnabled(False)
-            self.lbl_selection.setText("Selecciona una conversación para duplicar o exportar.")
+            self.btn_del.setEnabled(False)
+            self.lbl_selection.setText("Selecciona una conversación para duplicar, exportar o eliminar.")
             return
 
         row = self.table.currentRow()
@@ -623,6 +649,7 @@ class MainWindow(QMainWindow):
             self.selected_title = item.text()
             self.btn_dup.setEnabled(True)
             self.btn_exp.setEnabled(True)
+            self.btn_del.setEnabled(True)
             self.lbl_selection.setText(
                 f"Seleccionado: <b style='color:#f8fafc;'>\"{self.selected_title}\"</b> "
                 f"<span style='color:#64748b;'>({self.selected_cid[:8]}...)</span>"
@@ -639,6 +666,7 @@ class MainWindow(QMainWindow):
 
         act_dup = menu.addAction("📋 Duplicar conversación")
         act_exp = menu.addAction("📦 Exportar a .agychat")
+        act_del = menu.addAction("🗑️ Eliminar conversación")
         menu.addSeparator()
         act_copy = menu.addAction("📋 Copiar UUID al portapapeles")
 
@@ -647,9 +675,42 @@ class MainWindow(QMainWindow):
             self.action_duplicate()
         elif action == act_exp:
             self.action_export()
+        elif action == act_del:
+            self.action_delete()
         elif action == act_copy and self.selected_cid:
             QApplication.clipboard().setText(self.selected_cid)
             self.statusBar().showMessage("UUID copiado al portapapeles", 3000)
+
+    def action_delete(self):
+        if not self.selected_cid or not self.selected_title:
+            return
+
+        reply = QMessageBox.warning(
+            self,
+            "Eliminar Conversación",
+            f"¿Estás seguro de que deseas eliminar permanentemente esta conversación?\n\n"
+            f"• Título: \"{self.selected_title}\"\n"
+            f"• ID: {self.selected_cid}\n\n"
+            "Esta acción borrará el historial de la base de datos y descargará el chat de Antigravity.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            success = delete_conversation(self.selected_cid, force=True)
+            if success:
+                QMessageBox.information(
+                    self,
+                    "Conversación Eliminada",
+                    f"El chat \"{self.selected_title}\" fue eliminado correctamente.",
+                )
+                self.refresh_data()
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Error al Eliminar",
+                    "No se pudo eliminar la conversación.",
+                )
 
     def action_duplicate(self):
         if not self.selected_cid or not self.selected_title:
