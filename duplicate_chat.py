@@ -17,6 +17,7 @@ import ssl
 import sys
 import tarfile
 import tempfile
+import time
 import urllib.request
 import uuid
 
@@ -216,6 +217,18 @@ def duplicate_conversation(source_id_or_title, custom_new_title=None):
 
     try:
         new_id = fork_via_api(source_id, new_title, port, csrf_token, step_count)
+        # Esperar brevemente a que language_server confirme la persistencia en summaries.db
+        for _ in range(40):
+            try:
+                con = sqlite3.connect(SUMMARIES_DB, timeout=3.0)
+                found = con.execute("SELECT 1 FROM conversation_summaries WHERE conversation_id = ?", (new_id,)).fetchone()
+                con.close()
+                if found:
+                    break
+            except Exception:
+                pass
+            time.sleep(0.05)
+
         print(f"\n✅ ¡Listo! El chat ha sido duplicado con éxito.")
         print(f"   Ya aparece visible en tu barra lateral como \"{new_title}\".\n")
         return new_id

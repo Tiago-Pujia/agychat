@@ -286,6 +286,7 @@ class DuplicateModal(QDialog):
         layout.addWidget(QLabel("Nuevo Título (-t / --title):"))
         self.new_edit = QLineEdit(f"{orig_title} (Copia)")
         self.new_edit.selectAll()
+        self.new_edit.returnPressed.connect(self.accept)
         layout.addWidget(self.new_edit)
 
         sub_info = QLabel("El chat duplicado aparecerá de inmediato en la barra lateral de Antigravity.")
@@ -538,7 +539,7 @@ class MainWindow(QMainWindow):
 
         main_layout.addWidget(self.status_frame)
 
-    def refresh_data(self):
+    def refresh_data(self, select_cid=None):
         """Lee la base de datos de SQLite y actualiza la tabla."""
         import sqlite3
 
@@ -555,7 +556,13 @@ class MainWindow(QMainWindow):
         con.close()
 
         self.conversations = [dict(r) for r in rows]
-        self.populate_table(self.conversations)
+
+        # Re-aplicar filtro si hay búsqueda activa
+        query = self.search_input.text().strip() if hasattr(self, "search_input") else ""
+        if query:
+            self.filter_table(query)
+        else:
+            self.populate_table(self.conversations)
 
         # Actualizar estado de Antigravity
         port, csrf = get_live_ls_info()
@@ -567,6 +574,18 @@ class MainWindow(QMainWindow):
             self.lbl_ls_status.setStyleSheet("color: #f59e0b; font-size: 11px;")
 
         self.lbl_stats.setText(f"{len(self.conversations)} conversaciones disponibles")
+
+        if select_cid:
+            self.select_by_cid(select_cid)
+
+    def select_by_cid(self, cid):
+        """Busca y selecciona una fila por su UUID en la tabla."""
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            if item and item.data(Qt.ItemDataRole.UserRole) == cid:
+                self.table.selectRow(row)
+                self.table.scrollToItem(item)
+                break
 
     def populate_table(self, convs):
         self.table.setRowCount(0)
@@ -718,13 +737,8 @@ class MainWindow(QMainWindow):
             new_title = modal.get_new_title()
             new_id = duplicate_conversation(self.selected_cid, new_title)
             if new_id:
-                QMessageBox.information(
-                    self,
-                    "Duplicación Exitosa",
-                    f"¡El chat ha sido duplicado con éxito!\n\nTítulo: \"{new_title}\"\n\n"
-                    "Ya se encuentra visible en la barra lateral de Antigravity.",
-                )
-                self.refresh_data()
+                self.refresh_data(select_cid=new_id)
+                self.statusBar().showMessage(f"Chat duplicado con éxito: \"{new_title}\"", 4000)
             else:
                 QMessageBox.critical(
                     self,
@@ -773,12 +787,8 @@ class MainWindow(QMainWindow):
                 overwrite=opts["overwrite"],
             )
             if imported_id:
-                QMessageBox.information(
-                    self,
-                    "Importación Exitosa",
-                    "El chat fue importado y cargado en caliente en Antigravity con éxito.",
-                )
-                self.refresh_data()
+                self.refresh_data(select_cid=imported_id)
+                self.statusBar().showMessage("Chat importado con éxito.", 4000)
             else:
                 QMessageBox.critical(
                     self,
