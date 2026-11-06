@@ -1,6 +1,8 @@
 # agychat (Antigravity Chat Manager)
 
-Herramienta de línea de comandos para **ramificar, duplicar, exportar e importar** conversaciones en **Google Antigravity**, manteniendo el historial completo de análisis, transcripciones y artefactos sin necesidad de volver a leer ni indexar los contenidos del proyecto.
+Herramienta de escritorio y línea de comandos para **ramificar, duplicar, exportar e importar** conversaciones en **Google Antigravity**, manteniendo el historial completo de análisis, transcripciones y artefactos sin necesidad de volver a leer ni indexar los contenidos del proyecto.
+
+Cuenta con **interfaz de consola (CLI)** y una **aplicación de escritorio gráfica (GUI en PyQt6)** con soporte de modo oscuro, arrastrar y soltar (*drag & drop*) e integración en el gestor de tareas del sistema.
 
 ---
 
@@ -13,12 +15,14 @@ Cuando se desea:
 * **Compartir un chat completo con un colega** para que continúe trabajando desde el mismo punto.
 * **Mover tu contexto de una máquina a otra** (ej. de tu PC de escritorio a una laptop).
 
-Comenzar un chat nuevo obliga al modelo a escanear nuevamente todo el repositorio. Esta herramienta cubre ese vacío permitiendo clonar hilos localmente o empaquetarlos en archivos portátiles (`.agychat`) con comandos simples y directos.
+Comenzar un chat nuevo obliga al modelo a escanear nuevamente todo el repositorio. Esta herramienta cubre ese vacío permitiendo clonar hilos localmente o empaquetarlos en archivos portátiles (`.agychat`) de forma visual o por terminal.
 
 ---
 
 ## ✨ Características
 
+* **Interfaz Gráfica de Escritorio (GUI):** Ventana nativa en PyQt6 con tema oscuro, buscador instantáneo, explorador de archivos nativo y soporte para arrastrar y soltar (*drag & drop*) archivos `.agychat`.
+* **Integración en el Sistema:** Lanzador `.desktop` con ícono vectorial que permite abrir la app desde el menú de inicio y verla en el gestor de tareas, barra de tareas y selector `Alt + Tab`.
 * **Ramificación en vivo:** Se conecta directamente con el motor en memoria de Antigravity (`language_server`). La conversación duplicada o importada aparece de inmediato en la barra lateral sin reiniciar la aplicación ni recargar la ventana.
 * **Exportación portátil (.agychat):** Empaqueta la base de trayectoria SQLite, metadatos, transcripciones y artefactos del `brain` en un único archivo comprimido ultra liviano.
 * **Importación inteligente:**
@@ -27,7 +31,6 @@ Comenzar un chat nuevo obliga al modelo a escanear nuevamente todo el repositori
   * Asocia el chat al proyecto correspondiente en la máquina receptora.
   * Prevención automática de colisiones de identificador (`UUID`).
 * **Búsqueda flexible:** Permite ubicar conversaciones por título exacto, coincidencia parcial o ID único.
-* **Sin dependencias externas:** Desarrollado utilizando exclusivamente la biblioteca estándar de Python 3.
 
 ---
 
@@ -36,8 +39,8 @@ Comenzar un chat nuevo obliga al modelo a escanear nuevamente todo el repositori
 1. Clonar el repositorio y acceder a la carpeta:
 
 ```bash
-git clone https://github.com/Tiago-Pujia/Antigravity-Duplicate-Chat.git
-cd Antigravity-Duplicate-Chat
+git clone https://github.com/Tiago-Pujia/agychat.git
+cd agychat
 ```
 
 2. Otorgar permisos de ejecución y ejecutar el instalador:
@@ -47,16 +50,38 @@ chmod +x install.sh
 ./install.sh
 ```
 
-El script registrará el comando principal **`agychat`** en `~/.local/bin` (junto con los alias `antigravity-chat` y `duplicate-chat-antigravity`).
+El script se encarga automáticamente de:
+* Registrar el comando **`agychat`** en `~/.local/bin` (junto con alias de compatibilidad).
+* Instalar el icono vectorial en `~/.local/share/icons/hicolor/scalable/apps/agychat.svg`.
+* Registrar el lanzador de escritorio en `~/.local/share/applications/agychat.desktop`.
 
 ---
 
-## 💻 Ejemplos de Uso
+## 🖥️ Interfaz Gráfica (GUI)
+
+Puedes abrir la aplicación gráfica de dos formas:
+1. **Desde la terminal:**
+   ```bash
+   agychat -g
+   # o con la opción larga:
+   agychat --gui
+   ```
+2. **Desde el menú de aplicaciones:** Presiona la tecla `Super` (Windows) y escribe **"agychat"**.
+
+### Funciones de la ventana gráfica:
+* **Tabla interactiva:** Muestra todas las conversaciones, carpetas de proyecto, cantidad de pasos y fechas.
+* **Filtrado en vivo:** Escribe en el buscador superior para filtrar chats instantáneamente.
+* **Duplicar con doble clic:** Haz doble clic sobre cualquier chat o usa el botón **Duplicar (-d)** para ramificarlo al instante con un nuevo nombre.
+* **Exportar con diálogo nativo:** Elige la carpeta donde guardar el `.agychat` mediante el explorador de archivos del sistema.
+* **Importar y Drag & Drop:** Haz clic en **Importar** o simplemente arrastra un archivo `.agychat` dentro de la ventana para cargarlo en caliente.
+
+---
+
+## 💻 Ejemplos de Uso en Consola (CLI)
 
 ### 1. Consultar ayuda
 ```bash
 agychat -h
-# o con la opción larga:
 agychat --help
 ```
 
@@ -67,7 +92,6 @@ Para consultar los títulos y UUIDs de todos los chats registrados actualmente e
 
 ```bash
 agychat -l
-# o con la opción larga:
 agychat --list
 ```
 
@@ -78,14 +102,12 @@ agychat --list
 * **Copia automática con sufijo `(Copia)`:**
   ```bash
   agychat -d "Analisis Inicial"
-  # o con la opción larga:
   agychat --duplicate "Analisis Inicial"
   ```
 
 * **Copia asignando un nuevo título:**
   ```bash
   agychat -d "Analisis Inicial" -t "Modulo 2 - Refactor"
-  # o con la opción larga:
   agychat --duplicate "Analisis Inicial" --title "Modulo 2 - Refactor"
   ```
 
@@ -99,7 +121,6 @@ Para empaquetar un chat en un archivo portátil (`.agychat`):
 
 ```bash
 agychat -e "Analisis Inicial"
-# o con la opción larga:
 agychat --export "Analisis Inicial"
 ```
 *(Generará automáticamente `Analisis_Inicial.agychat`).*
@@ -108,7 +129,6 @@ También puedes especificar el nombre o ruta del archivo de salida con `-o` o `-
 
 ```bash
 agychat -e "Analisis Inicial" -o ~/Descargas/mi_chat.agychat
-# o con la opción larga:
 agychat --export "Analisis Inicial" --output ~/Descargas/mi_chat.agychat
 ```
 
@@ -121,7 +141,6 @@ Una vez transferido el archivo a la otra máquina:
 ```bash
 # Importación estándar (detecta automáticamente el workspace si el repo coincide):
 agychat -i mi_chat.agychat
-# o con la opción larga:
 agychat --import mi_chat.agychat
 
 # Importación asignando un título nuevo:
@@ -142,7 +161,8 @@ agychat -i mi_chat.agychat --new-id
 
 | Bandera Corta | Bandera Larga | Argumento | Descripción |
 |---|---|---|---|
-| `-h` | `--help` | *(ninguno)* | Muestra la ayuda interactiva. |
+| `-g` | `--gui` | *(ninguno)* | Abre la aplicación de escritorio gráfica interactiva. |
+| `-h` | `--help` | *(ninguno)* | Muestra la ayuda interactiva en consola. |
 | `-l` | `--list` | *(ninguno)* | Lista todos los chats disponibles con su UUID. |
 | `-d` | `--duplicate` | `<CHAT>` | Duplica un chat en caliente por título o ID. |
 | `-e` | `--export` | `<CHAT>` | Exporta un chat a archivo `.agychat`. |
@@ -159,13 +179,14 @@ agychat -i mi_chat.agychat --new-id
 
 * **Sistema Operativo:** Linux
 * **Python:** 3.8 o superior
+* **PyQt6:** Para la interfaz gráfica (generalmente preinstalado o `sudo apt install python3-pyqt6` / `pip install PyQt6`).
 * **Google Antigravity:** Instalado. (Para duplicación en vivo o carga inmediata al importar, debe encontrarse en ejecución; de lo contrario, la importación se registrará para el próximo inicio).
 
 ---
 
 ## 🗑️ Desinstalación
 
-Para retirar el comando y sus enlaces simbólicos del sistema:
+Para retirar el comando, el lanzador `.desktop`, el icono y los enlaces simbólicos del sistema:
 
 ```bash
 chmod +x uninstall.sh

@@ -576,9 +576,11 @@ Uso:
   agychat -d | --duplicate "<CHAT>" [-t | --title "<TITULO>"]
   agychat -e | --export "<CHAT>" [-o | --output <ARCHIVO>]
   agychat -i | --import <ARCHIVO> [-t | --title "<TITULO>"] [-w | --workspace <RUTA>]
+  agychat -g | --gui
   agychat -h | --help
 
 Opciones:
+  -g, --gui                 Inicia la interfaz gráfica de escritorio interactiva.
   -h, --help                Muestra esta ayuda.
   -l, --list                Lista todas las conversaciones registradas.
   -d, --duplicate CHAT      Duplica un chat en tiempo real por título o ID.
@@ -591,23 +593,27 @@ Opciones:
       --overwrite           Sobrescribe el chat si el UUID coincide con uno existente.
 
 Ejemplos:
-  1) Listar chats disponibles:
+  1) Abrir interfaz gráfica de escritorio:
+     agychat -g
+     agychat --gui
+
+  2) Listar chats disponibles en consola:
      agychat -l
      agychat --list
 
-  2) Duplicar con sufijo '(Copia)':
+  3) Duplicar con sufijo '(Copia)':
      agychat -d "Analisis Inicial"
      agychat --duplicate "Analisis Inicial"
 
-  3) Duplicar con nuevo título:
+  4) Duplicar con nuevo título:
      agychat -d "Analisis Inicial" -t "Modulo 2 - Refactor"
      agychat --duplicate "Analisis Inicial" --title "Modulo 2 - Refactor"
 
-  4) Exportar a archivo comprimido portátil (.agychat):
+  5) Exportar a archivo comprimido portátil (.agychat):
      agychat -e "Analisis Inicial"
      agychat --export "Analisis Inicial" -o ~/Descargas/backup.agychat
 
-  5) Importar en otra máquina:
+  6) Importar en otra máquina:
      agychat -i backup.agychat
      agychat --import backup.agychat -t "Nuevo Titulo" -w ~/Proyectos/mi-repo
 """)
@@ -615,6 +621,7 @@ Ejemplos:
 
 def main():
     parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("-g", "--gui", action="store_true")
     parser.add_argument("-h", "--help", action="store_true")
     parser.add_argument("-l", "--list", action="store_true")
     parser.add_argument("-d", "--duplicate", nargs="?", const="", default=None)
@@ -628,6 +635,17 @@ def main():
     parser.add_argument("positional", nargs="*")
 
     args = parser.parse_args()
+
+    # Modo Interfaz Gráfica
+    if args.gui:
+        try:
+            from gui import launch_gui
+            launch_gui()
+        except ImportError as e:
+            print(f"❌ Error al iniciar la interfaz gráfica: {e}")
+            print("   Asegúrate de tener PyQt6 instalado: sudo apt install python3-pyqt6 o pip install PyQt6")
+            sys.exit(1)
+        sys.exit(0)
 
     if args.help or (not sys.argv[1:]):
         print_help()

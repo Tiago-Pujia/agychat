@@ -5,14 +5,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET_SCRIPT="$SCRIPT_DIR/duplicate_chat.py"
 BIN_DIR="$HOME/.local/bin"
 PRIMARY_CMD="agychat"
+APPS_DIR="$HOME/.local/share/applications"
+ICONS_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
 
 echo "=== Instalando Antigravity Chat Manager (agychat) ==="
 
 # 1. Asegurar permisos de ejecución en los scripts
-chmod +x "$TARGET_SCRIPT" "$SCRIPT_DIR/uninstall.sh"
+chmod +x "$TARGET_SCRIPT" "$SCRIPT_DIR/gui.py" "$SCRIPT_DIR/uninstall.sh"
 
-# 2. Crear ~/.local/bin si no existe
-mkdir -p "$BIN_DIR"
+# 2. Crear directorios necesarios
+mkdir -p "$BIN_DIR" "$APPS_DIR" "$ICONS_DIR"
 
 # 3. Crear enlace simbólico principal 'agychat'
 ln -sf "$TARGET_SCRIPT" "$BIN_DIR/$PRIMARY_CMD"
@@ -27,7 +29,36 @@ rm -f "$BIN_DIR/duplicate-chat"
 echo "✅ Comando principal instalado: $BIN_DIR/$PRIMARY_CMD -> $TARGET_SCRIPT"
 echo "   (Alias creados: antigravity-chat, duplicate-chat-antigravity)"
 
-# 5. Verificar PATH
+# 5. Instalar Icono de la Aplicación
+if [ -f "$SCRIPT_DIR/agychat.svg" ]; then
+    cp "$SCRIPT_DIR/agychat.svg" "$ICONS_DIR/agychat.svg"
+    echo "✅ Icono instalado en: $ICONS_DIR/agychat.svg"
+fi
+
+# 6. Crear archivo .desktop para el Menú de Aplicaciones y Gestor de Tareas
+cat <<EOF > "$APPS_DIR/agychat.desktop"
+[Desktop Entry]
+Version=1.0
+Name=agychat
+GenericName=Antigravity Chat Manager
+Comment=Gestor de Conversaciones y Ramificación en Vivo para Google Antigravity
+Exec=$BIN_DIR/agychat -g
+Icon=agychat
+Terminal=false
+Type=Application
+Categories=Development;
+StartupWMClass=agychat
+Keywords=antigravity;chat;duplicate;export;import;ai;
+EOF
+
+chmod +x "$APPS_DIR/agychat.desktop"
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database "$APPS_DIR" 2>/dev/null || true
+fi
+echo "✅ Lanzador de escritorio creado en: $APPS_DIR/agychat.desktop"
+echo "   (Visible en el Gestor de Tareas, Dock y Menú de Aplicaciones)"
+
+# 7. Verificar PATH
 if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
     echo "⚠️  Aviso: $BIN_DIR no parece estar en tu variable PATH actual."
     echo "   Para usar '$PRIMARY_CMD' directamente, añade esto a tu ~/.bashrc o ~/.zshrc:"
@@ -38,5 +69,7 @@ fi
 
 echo ""
 echo "🎉 ¡Instalación completa!"
-echo "Prueba ejecutar:"
-echo "   agychat -h"
+echo "Puedes usarlo desde la terminal:"
+echo "   agychat -h          # Ver ayuda CLI"
+echo "   agychat -g          # Abrir interfaz gráfica"
+echo "O buscar 'agychat' directamente en el menú de aplicaciones de tu sistema."
