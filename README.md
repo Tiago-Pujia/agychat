@@ -8,29 +8,19 @@ Cuenta con **interfaz de consola (CLI)** y una **aplicación de escritorio gráf
 
 ## 📌 Motivación
 
-Al trabajar con asistentes agentic en proyectos medianos o grandes, el inicio de una conversación suele implicar un proceso intensivo de lectura e indexación del espacio de trabajo (código fuente, documentación, dependencias).
-
-Cuando se desea:
-* Probar una solución alternativa o refactor sin perder el contexto ganado en una rama de chat.
-* **Compartir un chat completo con un colega** para que continúe trabajando desde el mismo punto.
-* **Mover tu contexto de una máquina a otra** (ej. de tu PC de escritorio a una laptop).
-
-Comenzar un chat nuevo obliga al modelo a escanear nuevamente todo el repositorio. Esta herramienta cubre ese vacío permitiendo clonar hilos localmente o empaquetarlos en archivos portátiles (`.agychat`) de forma visual o por terminal.
+Al iniciar un chat nuevo, los asistentes de IA deben releer e indexar todo el repositorio, consumiendo una gran cantidad de tokens y tiempo. **agychat** permite duplicar, ramificar y transferir conversaciones existentes preservando todo el contexto ganado, lo que permite **ahorrar tokens**, explorar soluciones alternativas y continuar el trabajo en otra máquina sin reindexar.
 
 ---
 
 ## ✨ Características
 
-* **Interfaz Gráfica de Escritorio (GUI):** Ventana nativa en PyQt6 con tema oscuro, buscador instantáneo, explorador de archivos nativo y soporte para arrastrar y soltar (*drag & drop*) archivos `.agychat`.
-* **Integración en el Sistema:** Lanzador `.desktop` con ícono vectorial que permite abrir la app desde el menú de inicio y verla en el gestor de tareas, barra de tareas y selector `Alt + Tab`.
-* **Ramificación en vivo:** Se conecta directamente con el motor en memoria de Antigravity (`language_server`). La conversación duplicada o importada aparece de inmediato en la barra lateral sin reiniciar la aplicación ni recargar la ventana.
-* **Exportación portátil (.agychat):** Empaqueta la base de trayectoria SQLite, metadatos, transcripciones y artefactos del `brain` en un único archivo comprimido ultra liviano.
-* **Importación inteligente:**
-  * Adapta de forma automática las rutas de inicio (`$HOME`) y repositorios entre diferentes usuarios o computadoras.
-  * Permite asociar explícitamente el chat al workspace local en el equipo de destino (`-w` / `--workspace`).
-  * Asocia el chat al proyecto correspondiente en la máquina receptora.
-  * Prevención automática de colisiones de identificador (`UUID`).
-* **Búsqueda flexible:** Permite ubicar conversaciones por título exacto, coincidencia parcial o ID único.
+* **Interfaz Gráfica (PyQt6):** Nativa, en modo oscuro, con buscador en tiempo real y soporte Drag & Drop.
+* **Integración en el Sistema:** Lanzador `.desktop` e icono vectorial visible en el menú y gestor de tareas.
+* **Duplicación en Caliente:** Ramifica chats al instante conectándose con `language_server` sin reiniciar la app.
+* **Exportación Portátil:** Empaqueta historial SQLite, metadatos y artefactos en archivos `.agychat`.
+* **Importación Inteligente:** Remapea rutas `$HOME`, asocia workspaces locales y resuelve colisiones de UUID.
+* **Eliminación Segura:** Descarga el chat de memoria en vivo y limpia SQLite y archivos de disco.
+* **Ficha de Detalles:** Muestra métricas de pasos, actividad, proyecto y desglose de espacio en disco.
 
 ---
 
@@ -68,14 +58,7 @@ Puedes abrir la aplicación gráfica de dos formas:
    ```
 2. **Desde el menú de aplicaciones:** Presiona la tecla `Super` (Windows) y escribe **"agychat"**.
 
-### Funciones de la ventana gráfica:
-* **Tabla interactiva:** Muestra todas las conversaciones, carpetas de proyecto, cantidad de pasos y fechas.
-* **Filtrado en vivo:** Escribe en el buscador superior para filtrar chats instantáneamente.
-* **Duplicar con doble clic:** Haz doble clic sobre cualquier chat o usa el botón **Duplicar (-d)** para ramificarlo al instante con un nuevo nombre.
-* **Exportar con diálogo nativo:** Elige la carpeta donde guardar el `.agychat` mediante el explorador de archivos del sistema.
-* **Importar y Drag & Drop:** Haz clic en **Importar** o simplemente arrastra un archivo `.agychat` dentro de la ventana para cargarlo en caliente.
-* **Ver detalles y métricas:** Presiona el botón **Detalles** para consultar la ficha completa (UUID, ruta local con botón de apertura en el explorador, métricas de actividad y desglose de almacenamiento en disco).
-* **Eliminar con confirmación:** Selecciona un chat y presiona **Eliminar (-D)** (o usa el clic derecho) para retirarlo de Antigravity y liberar espacio en disco de forma segura.
+![agychat GUI](screenshot.png)
 
 ---
 
@@ -153,6 +136,9 @@ agychat -i mi_chat.agychat -w ~/Proyectos/mi-repositorio
 
 # Forzar la generación de un nuevo UUID si hubiera conflicto:
 agychat -i mi_chat.agychat --new-id
+
+# Sobrescribir si el UUID ya existe en el sistema:
+agychat -i mi_chat.agychat --overwrite
 ```
 
 ### 6. Eliminar una conversación
