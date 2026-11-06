@@ -9,10 +9,11 @@ import json
 import os
 import re
 import sys
+import urllib.parse
 from datetime import datetime
 
 from PyQt6.QtCore import Qt, QUrl
-from PyQt6.QtGui import QAction, QColor, QFont, QIcon, QKeySequence
+from PyQt6.QtGui import QAction, QColor, QDesktopServices, QFont, QIcon, QKeySequence
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -35,6 +36,8 @@ from PyQt6.QtWidgets import (
 )
 
 from duplicate_chat import (
+    ANNOTATIONS_DIR,
+    BRAIN_DIR,
     CONVERSATIONS_DIR,
     SUMMARIES_DB,
     delete_conversation,
@@ -255,6 +258,289 @@ def format_relative_time(dt_str):
             return dt.strftime("%d/%m/%Y")
     except Exception:
         return dt_str[:16]
+
+
+def format_bytes(b):
+    """Convierte bytes a formato legible (B, KB, MB, GB)."""
+    if b < 1024:
+        return f"{b} B"
+    elif b < 1024 * 1024:
+        return f"{b / 1024:.1f} KB"
+    elif b < 1024 * 1024 * 1024:
+        return f"{b / (1024 * 1024):.1f} MB"
+    else:
+        return f"{b / (1024 * 1024 * 1024):.2f} GB"
+
+
+def get_conversation_disk_info(cid):
+    """Calcula el espacio ocupado en disco por una conversación."""
+    info = {
+        "db_bytes": 0,
+        "brain_bytes": 0,
+        "brain_files": 0,
+        "annot_bytes": 0,
+        "total_bytes": 0,
+    }
+    for ext in ("", "-wal", "-shm"):
+        f = os.path.join(CONVERSATIONS_DIR, f"{cid}.db{ext}")
+        if os.path.exists(f):
+            sz = os.path.getsize(f)
+            info["db_bytes"] += sz
+            info["total_bytes"] += sz
+
+    annot = os.path.join(ANNOTATIONS_DIR, f"{cid}.pbtxt")
+    if os.path.exists(annot):
+        sz = os.path.getsize(annot)
+        info["annot_bytes"] += sz
+        info["total_bytes"] += sz
+
+    brain = os.path.join(BRAIN_DIR, cid)
+    if os.path.exists(brain):
+        for root, _, files in os.walk(brain):
+            for f in files:
+                try:
+                    sz = os.path.getsize(os.path.join(root, f))
+                    info["brain_bytes"] += sz
+                    info["brain_files"] += 1
+                    info["total_bytes"] += sz
+                except Exception:
+                    pass
+    return info
+
+
+class DetailsModal(QDialog):
+    """Modal emergente con información detallada, métricas y almacenamiento de una conversación."""
+
+    def __init__(self, conv, disk_info, parent=None):
+        super().__init__(parent)
+        self.conv = conv
+        self.disk_info = disk_info
+        self.setWindowTitle("Detalles de la Conversación")
+        self.setFixedWidth(560)
+        self.setModal(True)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(14)
+        layout.setContentsMargins(24, 24, 24, 24)
+
+        title = conv.get("title") or "(Sin título)"
+        cid = conv.get("conversation_id", "")
+        steps = conv.get("step_count", 0)
+        status = conv.get("status") or "Inactivo"
+        last_mod = conv.get("last_modified_time", "")
+        last_input_time = conv.get("last_user_input_time", "")
+        last_input_step = conv.get("last_user_input_step_index", "")
+
+        # Workspace resolver con decodificación de URL (%20 -> espacios)
+        ws_raw = conv.get("workspace_uris", "")
+        ws_clean_name = "(Sin workspace)"
+        self.ws_local_path = ""
+        if ws_raw:
+            try:
+                uris = json.loads(ws_raw) if ws_raw.startswith("[") else [ws_raw]
+                if uris and uris[0]:
+                    clean_uri = uris[0]
+                    self.ws_local_path = urllib.parse.unquote(clean_uri.replace("file://", ""))
+                    ws_clean_name = urllib.parse.unquote(os.path.basename(clean_uri.rstrip("/")))
+            except Exception:
+                ws_clean_name = urllib.parse.unquote(ws_raw)
+
+        # 1. Encabezado
+        hdr_layout = QHBoxLayout()
+        icon_lbl = QLabel("ℹ️")
+        icon_lbl.setStyleSheet("font-size: 26px;")
+        hdr_layout.addWidget(icon_lbl)
+
+        hdr_v = QVBoxLayout()
+        title_lbl = QLabel(title)
+        title_lbl.setStyleSheet("font-size: 17px; font-weight: bold; color: #f8fafc;")
+        title_lbl.setWordWrap(True)
+        hdr_v.addWidget(title_lbl)
+
+        cid_short = QLabel(f"UUID: {cid}")
+        cid_short.setStyleSheet("font-family: monospace; font-size: 11px; color: #64748b;")
+        hdr_v.addWidget(cid_short)
+        hdr_layout.addLayout(hdr_v, stretch=1)
+        layout.addLayout(hdr_layout)
+
+        # 2. Tarjeta Identificación & Proyecto
+        card_proj = QFrame()
+        card_proj.setStyleSheet(
+            "background-color: #161a22; border-radius: 8px; padding: 10px 14px; border: 1px solid #232731;"
+        )
+        proj_layout = QVBoxLayout(card_proj)
+        proj_layout.setSpacing(8)
+
+        lbl_sec1 = QLabel("📁 PROYECTO Y WORKSPACE")
+        lbl_sec1.setStyleSheet("font-size: 11px; font-weight: bold; color: #38bdf8; letter-spacing: 0.5px;")
+        proj_layout.addWidget(lbl_sec1)
+
+        row_pname = QHBoxLayout()
+        lbl_pn = QLabel("Proyecto:")
+        lbl_pn.setStyleSheet("color: #94a3b8; font-size: 12px; min-width: 80px;")
+        val_pn = QLabel(f"<b>{ws_clean_name}</b>")
+        val_pn.setStyleSheet("color: #f8fafc; font-size: 12px;")
+        row_pname.addWidget(lbl_pn)
+        row_pname.addWidget(val_pn, stretch=1)
+        proj_layout.addLayout(row_pname)
+
+        if self.ws_local_path:
+            row_path = QHBoxLayout()
+            lbl_pth = QLabel("Ruta local:")
+            lbl_pth.setStyleSheet("color: #94a3b8; font-size: 12px; min-width: 80px;")
+            val_pth = QLineEdit(self.ws_local_path)
+            val_pth.setReadOnly(True)
+            val_pth.setStyleSheet("font-size: 11px; font-family: monospace; padding: 4px 8px;")
+            row_path.addWidget(lbl_pth)
+            row_path.addWidget(val_pth, stretch=1)
+
+            if os.path.exists(self.ws_local_path):
+                btn_open = QPushButton("📂 Abrir")
+                btn_open.setStyleSheet("padding: 4px 10px; font-size: 11px;")
+                btn_open.clicked.connect(self.open_workspace_folder)
+                row_path.addWidget(btn_open)
+
+            proj_layout.addLayout(row_path)
+
+        layout.addWidget(card_proj)
+
+        # 3. Tarjeta Métricas y Actividad
+        card_metrics = QFrame()
+        card_metrics.setStyleSheet(
+            "background-color: #161a22; border-radius: 8px; padding: 10px 14px; border: 1px solid #232731;"
+        )
+        met_layout = QVBoxLayout(card_metrics)
+        met_layout.setSpacing(8)
+
+        lbl_sec2 = QLabel("📊 ACTIVIDAD Y MÉTRICAS")
+        lbl_sec2.setStyleSheet("font-size: 11px; font-weight: bold; color: #a78bfa; letter-spacing: 0.5px;")
+        met_layout.addWidget(lbl_sec2)
+
+        row_steps = QHBoxLayout()
+        lbl_s = QLabel("Pasos / Turnos:")
+        lbl_s.setStyleSheet("color: #94a3b8; font-size: 12px; min-width: 120px;")
+        val_s = QLabel(f"<span style='color: #60a5fa; font-weight: bold;'>{steps} pasos</span>")
+        row_steps.addWidget(lbl_s)
+        row_steps.addWidget(val_s)
+        row_steps.addStretch()
+
+        lbl_st = QLabel("Estado:")
+        lbl_st.setStyleSheet("color: #94a3b8; font-size: 12px;")
+        clean_status = "En espera (Idle)" if "IDLE" in str(status) else str(status)
+        val_st = QLabel(f"<span style='color: #10b981; font-weight: 500;'>{clean_status}</span>")
+        row_steps.addWidget(lbl_st)
+        row_steps.addWidget(val_st)
+        met_layout.addLayout(row_steps)
+
+        row_dates = QHBoxLayout()
+        lbl_mod = QLabel("Última actividad:")
+        lbl_mod.setStyleSheet("color: #94a3b8; font-size: 12px; min-width: 120px;")
+        rel_mod = format_relative_time(last_mod)
+        clean_date = last_mod[:19].replace("T", " ") if last_mod else "Desconocida"
+        val_mod = QLabel(f"<span style='color: #f8fafc;'>{clean_date}</span> <span style='color: #64748b;'>({rel_mod})</span>")
+        row_dates.addWidget(lbl_mod)
+        row_dates.addWidget(val_mod)
+        row_dates.addStretch()
+        met_layout.addLayout(row_dates)
+
+        if last_input_time:
+            row_usr = QHBoxLayout()
+            lbl_u = QLabel("Último input usuario:")
+            lbl_u.setStyleSheet("color: #94a3b8; font-size: 12px; min-width: 120px;")
+            u_date = str(last_input_time)[:19].replace("T", " ")
+            step_txt = f" (Paso {last_input_step})" if last_input_step != "" else ""
+            val_u = QLabel(f"<span style='color: #cbd5e1;'>{u_date}{step_txt}</span>")
+            row_usr.addWidget(lbl_u)
+            row_usr.addWidget(val_u)
+            row_usr.addStretch()
+            met_layout.addLayout(row_usr)
+
+        layout.addWidget(card_metrics)
+
+        # 4. Tarjeta Almacenamiento en Disco
+        card_disk = QFrame()
+        card_disk.setStyleSheet(
+            "background-color: #161a22; border-radius: 8px; padding: 10px 14px; border: 1px solid #232731;"
+        )
+        d_layout = QVBoxLayout(card_disk)
+        d_layout.setSpacing(8)
+
+        lbl_sec3 = QLabel("💾 ALMACENAMIENTO EN DISCO")
+        lbl_sec3.setStyleSheet("font-size: 11px; font-weight: bold; color: #34d399; letter-spacing: 0.5px;")
+        d_layout.addWidget(lbl_sec3)
+
+        row_disk_items = QHBoxLayout()
+
+        col_db = QVBoxLayout()
+        lbl_db_t = QLabel("Base de Datos:")
+        lbl_db_t.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        col_db.addWidget(lbl_db_t)
+        val_db = QLabel(f"<b>{format_bytes(disk_info['db_bytes'])}</b>")
+        val_db.setStyleSheet("color: #f8fafc; font-size: 13px;")
+        col_db.addWidget(val_db)
+        row_disk_items.addLayout(col_db)
+
+        col_brain = QVBoxLayout()
+        lbl_br_t = QLabel("Brain / Artefactos:")
+        lbl_br_t.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        col_brain.addWidget(lbl_br_t)
+        val_brain = QLabel(f"<b>{format_bytes(disk_info['brain_bytes'])}</b> <span style='color:#64748b; font-size:11px;'>({disk_info['brain_files']} arch.)</span>")
+        val_brain.setStyleSheet("color: #f8fafc; font-size: 13px;")
+        col_brain.addWidget(val_brain)
+        row_disk_items.addLayout(col_brain)
+
+        col_tot = QVBoxLayout()
+        lbl_tot_t = QLabel("Total Ocupado:")
+        lbl_tot_t.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        col_tot.addWidget(lbl_tot_t)
+        val_tot = QLabel(f"<b style='color: #38bdf8; font-size: 14px;'>{format_bytes(disk_info['total_bytes'])}</b>")
+        col_tot.addWidget(val_tot)
+        row_disk_items.addLayout(col_tot)
+
+        d_layout.addLayout(row_disk_items)
+        layout.addWidget(card_disk)
+
+        # 5. Barra inferior de botones
+        bot_layout = QHBoxLayout()
+
+        btn_copy_id = QPushButton("📋 Copiar UUID")
+        btn_copy_id.clicked.connect(self.copy_uuid)
+        bot_layout.addWidget(btn_copy_id)
+
+        btn_copy_all = QPushButton("📄 Copiar Ficha")
+        btn_copy_all.clicked.connect(self.copy_summary)
+        bot_layout.addWidget(btn_copy_all)
+
+        bot_layout.addStretch()
+
+        btn_close = QPushButton("Cerrar")
+        btn_close.clicked.connect(self.accept)
+        bot_layout.addWidget(btn_close)
+
+        layout.addLayout(bot_layout)
+
+    def open_workspace_folder(self):
+        if self.ws_local_path and os.path.exists(self.ws_local_path):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(self.ws_local_path))
+
+    def copy_uuid(self):
+        cid = self.conv.get("conversation_id", "")
+        if cid:
+            QApplication.clipboard().setText(cid)
+
+    def copy_summary(self):
+        title = self.conv.get("title") or "(Sin título)"
+        cid = self.conv.get("conversation_id", "")
+        steps = self.conv.get("step_count", 0)
+        tot_disk = format_bytes(self.disk_info["total_bytes"])
+        text = (
+            f"Título: {title}\n"
+            f"UUID: {cid}\n"
+            f"Ruta Workspace: {self.ws_local_path}\n"
+            f"Pasos: {steps}\n"
+            f"Almacenamiento: {tot_disk}\n"
+        )
+        QApplication.clipboard().setText(text)
 
 
 class DuplicateModal(QDialog):
@@ -499,9 +785,14 @@ class MainWindow(QMainWindow):
         action_bar = QHBoxLayout()
         action_bar.setSpacing(12)
 
-        self.lbl_selection = QLabel("Selecciona una conversación para duplicar o exportar.")
+        self.lbl_selection = QLabel("Selecciona una conversación para ver detalles, duplicar, exportar o eliminar.")
         self.lbl_selection.setStyleSheet("color: #64748b; font-size: 12px;")
         action_bar.addWidget(self.lbl_selection, stretch=1)
+
+        self.btn_details = QPushButton("ℹ️ Detalles")
+        self.btn_details.setEnabled(False)
+        self.btn_details.clicked.connect(self.action_details)
+        action_bar.addWidget(self.btn_details)
 
         self.btn_dup = QPushButton("📋 Duplicar (-d)")
         self.btn_dup.setEnabled(False)
@@ -555,8 +846,11 @@ class MainWindow(QMainWindow):
         con = sqlite3.connect(SUMMARIES_DB, timeout=10.0)
         con.row_factory = sqlite3.Row
         rows = con.execute(
-            "SELECT conversation_id, title, step_count, last_modified_time, workspace_uris, project_id "
-            "FROM conversation_summaries ORDER BY last_modified_time DESC"
+            """
+            SELECT conversation_id, title, step_count, last_modified_time, workspace_uris, project_id,
+                   status, last_user_input_time, last_user_input_step_index
+            FROM conversation_summaries ORDER BY last_modified_time DESC
+            """
         ).fetchall()
         con.close()
 
@@ -601,16 +895,19 @@ class MainWindow(QMainWindow):
             steps = str(row.get("step_count", 0))
             mod_time = format_relative_time(row.get("last_modified_time", ""))
 
-            # Workspace / Proyecto
+            # Workspace / Proyecto (con decodificación de URL: %20 -> espacios)
             ws_raw = row.get("workspace_uris", "")
             ws_display = "(Sin workspace)"
+            ws_tooltip = ""
             if ws_raw:
                 try:
                     uris = json.loads(ws_raw) if ws_raw.startswith("[") else [ws_raw]
                     if uris and uris[0]:
-                        ws_display = os.path.basename(uris[0].rstrip("/"))
+                        clean_uri = uris[0]
+                        ws_tooltip = urllib.parse.unquote(clean_uri.replace("file://", ""))
+                        ws_display = urllib.parse.unquote(os.path.basename(clean_uri.rstrip("/")))
                 except Exception:
-                    ws_display = ws_raw
+                    ws_display = urllib.parse.unquote(ws_raw)
 
             item_title = QTableWidgetItem(title)
             item_title.setData(Qt.ItemDataRole.UserRole, cid)
@@ -620,6 +917,8 @@ class MainWindow(QMainWindow):
 
             item_ws = QTableWidgetItem(ws_display)
             item_ws.setForeground(QColor("#94a3b8"))
+            if ws_tooltip:
+                item_ws.setToolTip(ws_tooltip)
 
             item_steps = QTableWidgetItem(steps)
             item_steps.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -651,7 +950,7 @@ class MainWindow(QMainWindow):
                 for c in self.conversations
                 if q in (c.get("title") or "").lower()
                 or q in c.get("conversation_id", "").lower()
-                or q in (c.get("workspace_uris") or "").lower()
+                or q in urllib.parse.unquote(c.get("workspace_uris") or "").lower()
             ]
         self.populate_table(filtered)
 
@@ -660,10 +959,11 @@ class MainWindow(QMainWindow):
         if not sel:
             self.selected_cid = None
             self.selected_title = None
+            self.btn_details.setEnabled(False)
             self.btn_dup.setEnabled(False)
             self.btn_exp.setEnabled(False)
             self.btn_del.setEnabled(False)
-            self.lbl_selection.setText("Selecciona una conversación para duplicar, exportar o eliminar.")
+            self.lbl_selection.setText("Selecciona una conversación para ver detalles, duplicar, exportar o eliminar.")
             return
 
         row = self.table.currentRow()
@@ -671,6 +971,7 @@ class MainWindow(QMainWindow):
         if item:
             self.selected_cid = item.data(Qt.ItemDataRole.UserRole)
             self.selected_title = item.text()
+            self.btn_details.setEnabled(True)
             self.btn_dup.setEnabled(True)
             self.btn_exp.setEnabled(True)
             self.btn_del.setEnabled(True)
@@ -688,6 +989,7 @@ class MainWindow(QMainWindow):
             return
         menu = QMenu(self)
 
+        act_det = menu.addAction("ℹ️ Ver detalles de la conversación")
         act_dup = menu.addAction("📋 Duplicar conversación")
         act_exp = menu.addAction("📦 Exportar a .agychat")
         act_del = menu.addAction("🗑️ Eliminar conversación")
@@ -695,7 +997,9 @@ class MainWindow(QMainWindow):
         act_copy = menu.addAction("📋 Copiar UUID al portapapeles")
 
         action = menu.exec(self.table.viewport().mapToGlobal(pos))
-        if action == act_dup:
+        if action == act_det:
+            self.action_details()
+        elif action == act_dup:
             self.action_duplicate()
         elif action == act_exp:
             self.action_export()
@@ -704,6 +1008,16 @@ class MainWindow(QMainWindow):
         elif action == act_copy and self.selected_cid:
             QApplication.clipboard().setText(self.selected_cid)
             self.statusBar().showMessage("UUID copiado al portapapeles", 3000)
+
+    def action_details(self):
+        if not self.selected_cid:
+            return
+        conv = next((c for c in self.conversations if c.get("conversation_id") == self.selected_cid), None)
+        if not conv:
+            return
+        disk_info = get_conversation_disk_info(self.selected_cid)
+        modal = DetailsModal(conv, disk_info, self)
+        modal.exec()
 
     def action_delete(self):
         if not self.selected_cid or not self.selected_title:

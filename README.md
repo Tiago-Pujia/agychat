@@ -74,6 +74,7 @@ Puedes abrir la aplicación gráfica de dos formas:
 * **Duplicar con doble clic:** Haz doble clic sobre cualquier chat o usa el botón **Duplicar (-d)** para ramificarlo al instante con un nuevo nombre.
 * **Exportar con diálogo nativo:** Elige la carpeta donde guardar el `.agychat` mediante el explorador de archivos del sistema.
 * **Importar y Drag & Drop:** Haz clic en **Importar** o simplemente arrastra un archivo `.agychat` dentro de la ventana para cargarlo en caliente.
+* **Ver detalles y métricas:** Presiona el botón **Detalles** para consultar la ficha completa (UUID, ruta local con botón de apertura en el explorador, métricas de actividad y desglose de almacenamiento en disco).
 * **Eliminar con confirmación:** Selecciona un chat y presiona **Eliminar (-D)** (o usa el clic derecho) para retirarlo de Antigravity y liberar espacio en disco de forma segura.
 
 ---
