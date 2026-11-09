@@ -1,0 +1,838 @@
+import { Theme } from "theme.slint";
+import { StyledButton } from "components.slint";
+
+export component DetailsModal {
+    in property <bool> show: false;
+    in property <string> title: "";
+    in property <string> uuid: "";
+    in property <string> project: "";
+    in property <string> path: "";
+    in property <int> steps: 0;
+    in property <string> date: "";
+    in property <string> db-size: "0 B";
+    in property <string> brain-size: "0 B";
+    in property <int> brain-files: 0;
+    in property <string> total-size: "0 B";
+
+    callback close();
+    callback open-folder();
+    callback copy-uuid();
+    callback copy-ficha();
+
+    width: 100%;
+    height: 100%;
+    x: 0px;
+    y: 0px;
+
+    if root.show: Rectangle {
+        width: 100%;
+        height: 100%;
+        x: 0px;
+        y: 0px;
+        background: #030712d9;
+
+        TouchArea {
+            // Absorber clics en el backdrop
+        }
+
+        VerticalLayout {
+            alignment: center;
+
+            HorizontalLayout {
+                alignment: center;
+
+                modal-box := Rectangle {
+                    width: 540px;
+                    background: #111622;
+                    border-width: 1px;
+                    border-color: #ffffff20;
+                    border-radius: Theme.radius-lg;
+                    drop-shadow-blur: 40px;
+                    drop-shadow-color: #000000;
+                    clip: true;
+
+                    VerticalLayout {
+                        padding: 20px;
+                        spacing: 12px;
+
+                        // Header
+                        HorizontalLayout {
+                            Text {
+                                text: "🗂️ Ficha Técnica de la Conversación";
+                                font-size: 15px;
+                                font-weight: 700;
+                                color: #ffffff;
+                                vertical-alignment: center;
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                            TouchArea {
+                                width: 24px;
+                                height: 24px;
+                                clicked => { root.close(); }
+                                Text {
+                                    text: "✕";
+                                    font-size: 14px;
+                                    color: Theme.text-subtle;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+
+                        // Chat title & UUID
+                        VerticalLayout {
+                            spacing: 3px;
+                            Text {
+                                text: "💬 " + root.title;
+                                font-size: 14px;
+                                font-weight: 700;
+                                color: #f8fafc;
+                                wrap: word-wrap;
+                            }
+                            Text {
+                                text: "UUID: " + root.uuid;
+                                font-size: 11px;
+                                font-family: "monospace";
+                                color: Theme.text-subtle;
+                            }
+                        }
+
+                        // Tarjeta 1: Proyecto y Workspace
+                        Rectangle {
+                            background: #0d121c;
+                            border-width: 1px;
+                            border-color: #ffffff10;
+                            border-radius: Theme.radius-sm;
+
+                            VerticalLayout {
+                                padding: 10px;
+                                spacing: 6px;
+
+                                Text {
+                                    text: "📁 PROYECTO Y WORKSPACE";
+                                    font-size: 10px;
+                                    font-weight: 700;
+                                    color: #38bdf8;
+                                }
+
+                                HorizontalLayout {
+                                    Text {
+                                        text: "Proyecto: ";
+                                        font-size: 12px;
+                                        color: Theme.text-muted;
+                                        width: 75px;
+                                    }
+                                    Text {
+                                        text: root.project;
+                                        font-size: 12px;
+                                        font-weight: 600;
+                                        color: Theme.text-main;
+                                    }
+                                }
+
+                                if root.path != "": HorizontalLayout {
+                                    spacing: 8px;
+
+                                    Text {
+                                        text: "Ruta local: ";
+                                        font-size: 12px;
+                                        color: Theme.text-muted;
+                                        width: 75px;
+                                        vertical-alignment: center;
+                                    }
+
+                                    Rectangle {
+                                        background: #141a26;
+                                        border-radius: 4px;
+                                        height: 24px;
+                                        horizontal-stretch: 1;
+
+                                        HorizontalLayout {
+                                            padding-left: 8px;
+                                            padding-right: 8px;
+                                            Text {
+                                                text: root.path;
+                                                font-size: 11px;
+                                                font-family: "monospace";
+                                                color: #94a3b8;
+                                                overflow: elide;
+                                                vertical-alignment: center;
+                                            }
+                                        }
+                                    }
+
+                                    StyledButton {
+                                        text: "Abrir Carpeta";
+                                        icon: "📂";
+                                        clicked => { root.open-folder(); }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Tarjeta 2: Actividad y Métricas
+                        Rectangle {
+                            background: #0d121c;
+                            border-width: 1px;
+                            border-color: #ffffff10;
+                            border-radius: Theme.radius-sm;
+
+                            VerticalLayout {
+                                padding: 10px;
+                                spacing: 6px;
+
+                                Text {
+                                    text: "📊 ACTIVIDAD Y MÉTRICAS";
+                                    font-size: 10px;
+                                    font-weight: 700;
+                                    color: #a78bfa;
+                                }
+
+                                HorizontalLayout {
+                                    Text {
+                                        text: "Pasos: ";
+                                        font-size: 12px;
+                                        color: Theme.text-muted;
+                                    }
+                                    Text {
+                                        text: root.steps + " pasos";
+                                        font-size: 12px;
+                                        font-weight: 700;
+                                        color: #60a5fa;
+                                    }
+                                    Rectangle { horizontal-stretch: 1; }
+                                    Text {
+                                        text: "Última actividad: ";
+                                        font-size: 12px;
+                                        color: Theme.text-muted;
+                                    }
+                                    Text {
+                                        text: root.date;
+                                        font-size: 12px;
+                                        color: #f8fafc;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Tarjeta 3: Almacenamiento
+                        Rectangle {
+                            background: #0d121c;
+                            border-width: 1px;
+                            border-color: #ffffff10;
+                            border-radius: Theme.radius-sm;
+
+                            VerticalLayout {
+                                padding: 10px;
+                                spacing: 6px;
+
+                                Text {
+                                    text: "💾 ALMACENAMIENTO EN DISCO";
+                                    font-size: 10px;
+                                    font-weight: 700;
+                                    color: #34d399;
+                                }
+
+                                HorizontalLayout {
+                                    spacing: 8px;
+
+                                    Rectangle {
+                                        background: #ffffff06;
+                                        border-radius: 4px;
+                                        height: 40px;
+                                        horizontal-stretch: 1;
+
+                                        VerticalLayout {
+                                            alignment: center;
+                                            Text {
+                                                text: "Base de Datos";
+                                                font-size: 10px;
+                                                color: Theme.text-muted;
+                                                horizontal-alignment: center;
+                                            }
+                                            Text {
+                                                text: root.db-size;
+                                                font-size: 12px;
+                                                font-weight: 700;
+                                                color: #ffffff;
+                                                horizontal-alignment: center;
+                                            }
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        background: #ffffff06;
+                                        border-radius: 4px;
+                                        height: 40px;
+                                        horizontal-stretch: 1;
+
+                                        VerticalLayout {
+                                            alignment: center;
+                                            Text {
+                                                text: "Artefactos (" + root.brain-files + ")";
+                                                font-size: 10px;
+                                                color: Theme.text-muted;
+                                                horizontal-alignment: center;
+                                            }
+                                            Text {
+                                                text: root.brain-size;
+                                                font-size: 12px;
+                                                font-weight: 700;
+                                                color: #ffffff;
+                                                horizontal-alignment: center;
+                                            }
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        background: #38bdf815;
+                                        border-width: 1px;
+                                        border-color: #38bdf835;
+                                        border-radius: 4px;
+                                        height: 40px;
+                                        horizontal-stretch: 1;
+
+                                        VerticalLayout {
+                                            alignment: center;
+                                            Text {
+                                                text: "Total Ocupado";
+                                                font-size: 10px;
+                                                color: #38bdf8;
+                                                horizontal-alignment: center;
+                                            }
+                                            Text {
+                                                text: root.total-size;
+                                                font-size: 13px;
+                                                font-weight: 700;
+                                                color: #38bdf8;
+                                                horizontal-alignment: center;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Footer Actions
+                        HorizontalLayout {
+                            spacing: 8px;
+
+                            StyledButton {
+                                text: "Copiar UUID";
+                                icon: "📋";
+                                clicked => { root.copy-uuid(); }
+                            }
+
+                            StyledButton {
+                                text: "Copiar Ficha";
+                                icon: "📄";
+                                clicked => { root.copy-ficha(); }
+                            }
+
+                            Rectangle { horizontal-stretch: 1; }
+
+                            StyledButton {
+                                text: "Entendido";
+                                variant: "primary";
+                                clicked => { root.close(); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component DuplicateModal {
+    in property <bool> show: false;
+    in property <string> original-title: "";
+    in-out property <string> new-title: "";
+
+    callback close();
+    callback confirm();
+
+    width: 100%;
+    height: 100%;
+    x: 0px;
+    y: 0px;
+
+    if root.show: Rectangle {
+        width: 100%;
+        height: 100%;
+        x: 0px;
+        y: 0px;
+        background: #030712d9;
+
+        TouchArea {}
+
+        VerticalLayout {
+            alignment: center;
+
+            HorizontalLayout {
+                alignment: center;
+
+                Rectangle {
+                    width: 480px;
+                    background: #111622;
+                    border-width: 1px;
+                    border-color: #ffffff20;
+                    border-radius: Theme.radius-lg;
+                    drop-shadow-blur: 40px;
+                    drop-shadow-color: #000000;
+                    clip: true;
+
+                    VerticalLayout {
+                        padding: 20px;
+                        spacing: 14px;
+
+                        Text {
+                            text: "📋 Duplicar Conversación en Caliente";
+                            font-size: 15px;
+                            font-weight: 700;
+                            color: #ffffff;
+                        }
+
+                        VerticalLayout {
+                            spacing: 5px;
+                            Text {
+                                text: "Chat Original:";
+                                font-size: 12px;
+                                font-weight: 600;
+                                color: Theme.text-muted;
+                            }
+                            Rectangle {
+                                background: #0d121c;
+                                border-width: 1px;
+                                border-color: Theme.border-subtle;
+                                border-radius: Theme.radius-sm;
+                                height: 32px;
+                                HorizontalLayout {
+                                    padding-left: 10px;
+                                    padding-right: 10px;
+                                    Text {
+                                        text: root.original-title;
+                                        font-size: 12px;
+                                        color: Theme.text-subtle;
+                                        overflow: elide;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                        }
+
+                        VerticalLayout {
+                            spacing: 5px;
+                            Text {
+                                text: "Nuevo Título (-t / --title):";
+                                font-size: 12px;
+                                font-weight: 600;
+                                color: Theme.text-muted;
+                            }
+                            Rectangle {
+                                background: Theme.bg-input;
+                                border-width: 1px;
+                                border-color: input-title.has-focus ? Theme.border-focus : Theme.border-subtle;
+                                border-radius: Theme.radius-sm;
+                                height: 32px;
+                                HorizontalLayout {
+                                    padding-left: 10px;
+                                    padding-right: 10px;
+                                    input-title := TextInput {
+                                        text <=> root.new-title;
+                                        font-size: 12px;
+                                        color: Theme.text-main;
+                                        vertical-alignment: center;
+                                        accepted => { root.confirm(); }
+                                    }
+                                }
+                            }
+                            Text {
+                                text: "El chat duplicado aparecerá de inmediato en la barra lateral de Antigravity.";
+                                font-size: 11px;
+                                color: Theme.text-subtle;
+                            }
+                        }
+
+                        HorizontalLayout {
+                            alignment: end;
+                            spacing: 8px;
+
+                            StyledButton {
+                                text: "Cancelar";
+                                clicked => { root.close(); }
+                            }
+
+                            StyledButton {
+                                text: "Duplicar en Caliente";
+                                icon: "🚀";
+                                variant: "primary";
+                                clicked => { root.confirm(); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component ImportModal {
+    in property <bool> show: false;
+    in-out property <string> archive-path: "";
+    in-out property <string> custom-title: "";
+    in-out property <string> target-workspace: "";
+    in-out property <bool> new-id: true;
+    in-out property <bool> overwrite: false;
+
+    callback close();
+    callback browse-archive();
+    callback browse-workspace();
+    callback confirm();
+
+    width: 100%;
+    height: 100%;
+    x: 0px;
+    y: 0px;
+
+    if root.show: Rectangle {
+        width: 100%;
+        height: 100%;
+        x: 0px;
+        y: 0px;
+        background: #030712d9;
+
+        TouchArea {}
+
+        VerticalLayout {
+            alignment: center;
+
+            HorizontalLayout {
+                alignment: center;
+
+                Rectangle {
+                    width: 520px;
+                    background: #111622;
+                    border-width: 1px;
+                    border-color: #ffffff20;
+                    border-radius: Theme.radius-lg;
+                    drop-shadow-blur: 40px;
+                    drop-shadow-color: #000000;
+                    clip: true;
+
+                    VerticalLayout {
+                        padding: 20px;
+                        spacing: 12px;
+
+                        Text {
+                            text: "📦 Importar Conversación (.agychat)";
+                            font-size: 15px;
+                            font-weight: 700;
+                            color: #ffffff;
+                        }
+
+                        // Archivo a importar
+                        VerticalLayout {
+                            spacing: 5px;
+                            Text {
+                                text: "Archivo .agychat a importar:";
+                                font-size: 12px;
+                                font-weight: 600;
+                                color: Theme.text-muted;
+                            }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Rectangle {
+                                    background: Theme.bg-input;
+                                    border-width: 1px;
+                                    border-color: Theme.border-subtle;
+                                    border-radius: Theme.radius-sm;
+                                    height: 32px;
+                                    horizontal-stretch: 1;
+
+                                    HorizontalLayout {
+                                        padding-left: 10px;
+                                        padding-right: 10px;
+                                        TextInput {
+                                            text <=> root.archive-path;
+                                            font-size: 12px;
+                                            color: Theme.text-main;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                }
+                                StyledButton {
+                                    text: "Explorar...";
+                                    icon: "📂";
+                                    clicked => { root.browse-archive(); }
+                                }
+                            }
+                        }
+
+                        // Nuevo título opcional
+                        VerticalLayout {
+                            spacing: 5px;
+                            Text {
+                                text: "Nuevo Título (Opcional):";
+                                font-size: 12px;
+                                font-weight: 600;
+                                color: Theme.text-muted;
+                            }
+                            Rectangle {
+                                background: Theme.bg-input;
+                                border-width: 1px;
+                                border-color: Theme.border-subtle;
+                                border-radius: Theme.radius-sm;
+                                height: 32px;
+                                HorizontalLayout {
+                                    padding-left: 10px;
+                                    padding-right: 10px;
+                                    TextInput {
+                                        text <=> root.custom-title;
+                                        font-size: 12px;
+                                        color: Theme.text-main;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Workspace local opcional
+                        VerticalLayout {
+                            spacing: 5px;
+                            Text {
+                                text: "Vincular a Workspace local (Opcional):";
+                                font-size: 12px;
+                                font-weight: 600;
+                                color: Theme.text-muted;
+                            }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Rectangle {
+                                    background: Theme.bg-input;
+                                    border-width: 1px;
+                                    border-color: Theme.border-subtle;
+                                    border-radius: Theme.radius-sm;
+                                    height: 32px;
+                                    horizontal-stretch: 1;
+
+                                    HorizontalLayout {
+                                        padding-left: 10px;
+                                        padding-right: 10px;
+                                        TextInput {
+                                            text <=> root.target-workspace;
+                                            font-size: 12px;
+                                            color: Theme.text-main;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                }
+                                StyledButton {
+                                    text: "Buscar...";
+                                    icon: "📁";
+                                    clicked => { root.browse-workspace(); }
+                                }
+                            }
+                        }
+
+                        // Checkboxes
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: start;
+
+                            Rectangle {
+                                width: 16px;
+                                height: 16px;
+                                border-radius: 4px;
+                                border-width: 1px;
+                                border-color: root.new-id ? Theme.accent-blue : Theme.text-subtle;
+                                background: root.new-id ? Theme.accent-blue : Theme.bg-input;
+
+                                if root.new-id: Text {
+                                    text: "✓";
+                                    font-size: 10px;
+                                    color: #ffffff;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+
+                                TouchArea {
+                                    clicked => { root.new-id = !root.new-id; }
+                                }
+                            }
+
+                            Text {
+                                text: "Generar nuevo identificador UUID único (--new-id)";
+                                font-size: 11px;
+                                color: Theme.text-muted;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: start;
+
+                            Rectangle {
+                                width: 16px;
+                                height: 16px;
+                                border-radius: 4px;
+                                border-width: 1px;
+                                border-color: root.overwrite ? Theme.accent-blue : Theme.text-subtle;
+                                background: root.overwrite ? Theme.accent-blue : Theme.bg-input;
+
+                                if root.overwrite: Text {
+                                    text: "✓";
+                                    font-size: 10px;
+                                    color: #ffffff;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+
+                                TouchArea {
+                                    clicked => { root.overwrite = !root.overwrite; }
+                                }
+                            }
+
+                            Text {
+                                text: "Sobrescribir si el UUID ya existe en este sistema (--overwrite)";
+                                font-size: 11px;
+                                color: Theme.text-muted;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        // Actions
+                        HorizontalLayout {
+                            alignment: end;
+                            spacing: 8px;
+
+                            StyledButton {
+                                text: "Cancelar";
+                                clicked => { root.close(); }
+                            }
+
+                            StyledButton {
+                                text: "Importar y Cargar";
+                                icon: "📦";
+                                variant: "success";
+                                clicked => { root.confirm(); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component DeleteModal {
+    in property <bool> show: false;
+    in property <string> title: "";
+    in property <string> uuid: "";
+
+    callback close();
+    callback confirm();
+
+    width: 100%;
+    height: 100%;
+    x: 0px;
+    y: 0px;
+
+    if root.show: Rectangle {
+        width: 100%;
+        height: 100%;
+        x: 0px;
+        y: 0px;
+        background: #030712d9;
+
+        TouchArea {}
+
+        VerticalLayout {
+            alignment: center;
+
+            HorizontalLayout {
+                alignment: center;
+
+                Rectangle {
+                    width: 440px;
+                    background: #111622;
+                    border-width: 1px;
+                    border-color: #ef444455;
+                    border-radius: Theme.radius-lg;
+                    drop-shadow-blur: 40px;
+                    drop-shadow-color: #000000;
+                    clip: true;
+
+                    VerticalLayout {
+                        padding: 20px;
+                        spacing: 14px;
+
+                        Text {
+                            text: "🗑️ ¿Eliminar Conversación?";
+                            font-size: 15px;
+                            font-weight: 700;
+                            color: #f87171;
+                        }
+
+                        Text {
+                            text: "¿Estás seguro de que deseas eliminar permanentemente esta conversación?";
+                            font-size: 12px;
+                            color: Theme.text-main;
+                        }
+
+                        Rectangle {
+                            background: #ef444415;
+                            border-width: 1px;
+                            border-color: #ef444440;
+                            border-radius: Theme.radius-sm;
+
+                            VerticalLayout {
+                                padding: 10px;
+                                spacing: 4px;
+
+                                Text {
+                                    text: root.title;
+                                    font-size: 12px;
+                                    font-weight: 700;
+                                    color: #f87171;
+                                    wrap: word-wrap;
+                                }
+
+                                Text {
+                                    text: root.uuid;
+                                    font-size: 11px;
+                                    font-family: "monospace";
+                                    color: #94a3b8;
+                                }
+                            }
+                        }
+
+                        Text {
+                            text: "Esta acción descargará la memoria en caliente de Antigravity y eliminará la base de datos y los artefactos de disco.";
+                            font-size: 11px;
+                            color: Theme.text-subtle;
+                        }
+
+                        HorizontalLayout {
+                            alignment: end;
+                            spacing: 8px;
+
+                            StyledButton {
+                                text: "Cancelar";
+                                clicked => { root.close(); }
+                            }
+
+                            StyledButton {
+                                text: "Sí, Eliminar Definitivamente";
+                                icon: "🗑️";
+                                variant: "danger";
+                                clicked => { root.confirm(); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

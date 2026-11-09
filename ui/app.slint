@@ -1,0 +1,834 @@
+import { Theme } from "theme.slint";
+import { StyledButton, FilterChip, SearchBar, Toast } from "components.slint";
+import { DetailsModal, DuplicateModal, ImportModal, DeleteModal } from "modals.slint";
+import { ListView } from "std-widgets.slint";
+
+export struct ConversationRow {
+    id: string,
+    short_id: string,
+    title: string,
+    project: string,
+    local_path: string,
+    steps: int,
+    relative_time: string,
+    full_date: string,
+    status_text: string,
+    is_copy: bool,
+    is_imported: bool,
+}
+
+export component AppWindow inherits Window {
+    title: "agychat — Antigravity Chat Manager";
+    icon: @image-url("../agychat.svg");
+    min-width: 820px;
+    min-height: 520px;
+    preferred-width: 1040px;
+    preferred-height: 680px;
+    background: Theme.bg-window;
+
+    // Propiedades de la lista y selección
+    in-out property <[ConversationRow]> conversations: [];
+    in-out property <int> selected_index: -1;
+    in-out property <string> selected_id: "";
+    in-out property <string> selected_title: "";
+    in-out property <string> search_text: "";
+    in-out property <string> active_filter: "all";
+
+    // Contadores para los chips de filtro
+    in-out property <int> total_count: 0;
+    in-out property <int> workspace_count: 0;
+    in-out property <int> copies_count: 0;
+    in-out property <int> recent_count: 0;
+
+    // Estado de Language Server y resumen de disco
+    in-out property <bool> ls_connected: false;
+    in-out property <string> ls_status_text: "Conectando...";
+    in-out property <string> disk_summary_text: "";
+
+    // Toast
+    in-out property <bool> toast_visible: false;
+    in-out property <string> toast_message: "";
+
+    // Modales
+    in-out property <bool> show_details: false;
+    in-out property <string> det_project: "";
+    in-out property <string> det_path: "";
+    in-out property <int> det_steps: 0;
+    in-out property <string> det_date: "";
+    in-out property <string> det_db_size: "0 B";
+    in-out property <string> det_brain_size: "0 B";
+    in-out property <int> det_brain_files: 0;
+    in-out property <string> det_total_size: "0 B";
+
+    in-out property <bool> show_duplicate: false;
+    in-out property <string> dup_new_title: "";
+
+    in-out property <bool> show_import: false;
+    in-out property <string> imp_archive_path: "";
+    in-out property <string> imp_custom_title: "";
+    in-out property <string> imp_target_workspace: "";
+    in-out property <bool> imp_new_id: true;
+    in-out property <bool> imp_overwrite: false;
+
+    in-out property <bool> show_delete: false;
+
+    // Menú contextual flotante
+    in-out property <bool> show_context_menu: false;
+    in-out property <length> menu_x: 0px;
+    in-out property <length> menu_y: 0px;
+
+    // Callbacks a Rust
+    callback refresh();
+    callback search_edited(string);
+    callback filter_selected(string);
+    callback sort_column(int);
+    callback row_selected(int, string);
+    callback row_double_clicked(int, string);
+    callback row_right_clicked(int, string, length, length);
+
+    callback action_details();
+    callback action_duplicate();
+    callback action_export();
+    callback action_delete();
+
+    callback copy_uuid();
+    callback copy_ficha();
+    callback open_workspace_folder();
+
+    callback confirm_duplicate(string);
+    callback confirm_import(string, string, string, bool, bool);
+    callback confirm_delete(string);
+
+    callback import_browse_archive();
+    callback import_browse_workspace();
+
+    // Layout Principal de la Ventana
+    VerticalLayout {
+        spacing: 0;
+
+        // 1. Barra de Herramientas Superior (con margen superior)
+        Rectangle {
+            background: Theme.bg-window;
+            height: 60px;
+
+            HorizontalLayout {
+                padding-top: 14px;
+                padding-bottom: 12px;
+                padding-left: 18px;
+                padding-right: 18px;
+                spacing: 12px;
+
+                SearchBar {
+                    text <=> root.search_text;
+                    placeholder: "Buscar por título, proyecto o UUID...";
+                    horizontal-stretch: 1;
+                    edited(txt) => { root.search_edited(txt); }
+                    clear() => { root.search_edited(""); }
+                }
+
+                StyledButton {
+                    text: "Refrescar";
+                    icon: "🔄";
+                    clicked => { root.refresh(); }
+                }
+
+                StyledButton {
+                    text: "Importar Chat";
+                    icon: "📦";
+                    variant: "primary";
+                    clicked => {
+                        root.show_details = false;
+                        root.show_duplicate = false;
+                        root.show_delete = false;
+                        root.show_context_menu = false;
+                        root.imp_archive_path = "";
+                        root.imp_custom_title = "";
+                        root.imp_target_workspace = "";
+                        root.imp_new_id = true;
+                        root.imp_overwrite = false;
+                        root.show_import = true;
+                    }
+                }
+            }
+        }
+
+        // Línea divisoria
+        Rectangle {
+            height: 1px;
+            background: Theme.border-subtle;
+        }
+
+        // 2. Barra de Filtros Rápidos (Chips)
+        Rectangle {
+            background: Theme.bg-window;
+            height: 38px;
+
+            HorizontalLayout {
+                padding-left: 18px;
+                padding-right: 18px;
+                spacing: 8px;
+
+                Text {
+                    text: "Filtros:";
+                    font-size: 11px;
+                    font-weight: 700;
+                    color: Theme.text-dim;
+                    vertical-alignment: center;
+                }
+
+                FilterChip {
+                    text: "Todos (" + root.total_count + ")";
+                    active: root.active_filter == "all";
+                    clicked => { root.filter_selected("all"); }
+                }
+
+                FilterChip {
+                    text: "Con Workspace (" + root.workspace_count + ")";
+                    active: root.active_filter == "workspace";
+                    clicked => { root.filter_selected("workspace"); }
+                }
+
+                FilterChip {
+                    text: "Copias / Ramas (" + root.copies_count + ")";
+                    active: root.active_filter == "copies";
+                    clicked => { root.filter_selected("copies"); }
+                }
+
+                FilterChip {
+                    text: "Recientes (" + root.recent_count + ")";
+                    active: root.active_filter == "recent";
+                    clicked => { root.filter_selected("recent"); }
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+            }
+        }
+
+        // Línea divisoria
+        Rectangle {
+            height: 1px;
+            background: #ffffff0a;
+        }
+
+        // 3. Encabezados de la Tabla
+        Rectangle {
+            background: Theme.bg-header;
+            height: 36px;
+
+            HorizontalLayout {
+                padding-left: 18px;
+                padding-right: 18px;
+                spacing: 12px;
+
+                // Columna 1: Conversación
+                TouchArea {
+                    horizontal-stretch: 1;
+                    clicked => { root.sort_column(0); }
+                    HorizontalLayout {
+                        alignment: start;
+                        Text {
+                            text: "Conversación ▲";
+                            font-size: 11px;
+                            font-weight: 700;
+                            color: Theme.text-muted;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
+                // Columna 2: Proyecto / Workspace
+                TouchArea {
+                    width: 210px;
+                    clicked => { root.sort_column(1); }
+                    HorizontalLayout {
+                        alignment: start;
+                        Text {
+                            text: "Proyecto / Workspace";
+                            font-size: 11px;
+                            font-weight: 700;
+                            color: Theme.text-muted;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
+                // Columna 3: Pasos
+                TouchArea {
+                    width: 85px;
+                    clicked => { root.sort_column(2); }
+                    HorizontalLayout {
+                        alignment: center;
+                        Text {
+                            text: "Pasos";
+                            font-size: 11px;
+                            font-weight: 700;
+                            color: Theme.text-muted;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
+                // Columna 4: Última Actividad
+                TouchArea {
+                    width: 125px;
+                    clicked => { root.sort_column(3); }
+                    HorizontalLayout {
+                        alignment: start;
+                        Text {
+                            text: "Última Actividad";
+                            font-size: 11px;
+                            font-weight: 700;
+                            color: Theme.text-muted;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
+                // Columna 5: UUID
+                Rectangle {
+                    width: 85px;
+                    HorizontalLayout {
+                        alignment: start;
+                        Text {
+                            text: "UUID";
+                            font-size: 11px;
+                            font-weight: 700;
+                            color: Theme.text-dim;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Línea divisoria
+        Rectangle {
+            height: 1px;
+            background: Theme.border-subtle;
+        }
+
+        // 4. Lista Virtualizada de Conversaciones
+        table_list := ListView {
+            vertical-stretch: 1;
+
+            for item[idx] in root.conversations: Rectangle {
+                height: 42px;
+                background: root.selected_index == idx ? #2563eb30 : (item_touch.has-hover ? Theme.bg-surface-hover : #00000000);
+
+                Rectangle {
+                    y: parent.height - 1px;
+                    height: 1px;
+                    background: #ffffff08;
+                }
+
+                if root.selected_index == idx: Rectangle {
+                    x: 0px;
+                    width: 3px;
+                    height: parent.height;
+                    background: Theme.accent-blue;
+                }
+
+                HorizontalLayout {
+                    padding-left: 18px;
+                    padding-right: 18px;
+                    spacing: 12px;
+
+                    // Columna 1: Conversación con emoji 💬
+                    HorizontalLayout {
+                        horizontal-stretch: 1;
+                        spacing: 8px;
+                        alignment: start;
+
+                        Text {
+                            text: "💬 " + item.title;
+                            font-size: 13px;
+                            font-weight: 600;
+                            color: root.selected_index == idx ? #ffffff : #f1f5f9;
+                            overflow: elide;
+                            vertical-alignment: center;
+                        }
+
+                        if item.is_copy: Rectangle {
+                            background: #a855f725;
+                            border-width: 1px;
+                            border-color: #a855f750;
+                            border-radius: 4px;
+                            height: 18px;
+                            y: (parent.height - self.height) / 2;
+                            HorizontalLayout {
+                                padding-left: 6px;
+                                padding-right: 6px;
+                                Text {
+                                    text: "Copia";
+                                    font-size: 9px;
+                                    font-weight: 700;
+                                    color: #c084fc;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+
+                        if item.is_imported: Rectangle {
+                            background: #10b98125;
+                            border-width: 1px;
+                            border-color: #10b98150;
+                            border-radius: 4px;
+                            height: 18px;
+                            y: (parent.height - self.height) / 2;
+                            HorizontalLayout {
+                                padding-left: 6px;
+                                padding-right: 6px;
+                                Text {
+                                    text: "Importado";
+                                    font-size: 9px;
+                                    font-weight: 700;
+                                    color: #34d399;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+
+                    // Columna 2: Proyecto / Workspace con emoji 📁
+                    Rectangle {
+                        width: 210px;
+                        clip: true;
+                        HorizontalLayout {
+                            alignment: start;
+
+                            Text {
+                                text: item.project == "(Sin workspace)" ? "(Sin workspace)" : ("📁 " + item.project);
+                                font-size: 12px;
+                                color: item.project == "(Sin workspace)" ? Theme.text-subtle : Theme.text-muted;
+                                overflow: elide;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+
+                    // Columna 3: Pasos
+                    Rectangle {
+                        width: 85px;
+                        HorizontalLayout {
+                            alignment: center;
+
+                            Rectangle {
+                                background: #3b82f61f;
+                                border-radius: 999px;
+                                height: 20px;
+                                y: (parent.height - self.height) / 2;
+
+                                HorizontalLayout {
+                                    padding-left: 7px;
+                                    padding-right: 7px;
+                                    Text {
+                                        text: item.steps + " pasos";
+                                        font-size: 11px;
+                                        font-weight: 600;
+                                        font-family: "monospace";
+                                        color: #60a5fa;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Columna 4: Modificación
+                    Rectangle {
+                        width: 125px;
+                        clip: true;
+                        HorizontalLayout {
+                            alignment: start;
+                            Text {
+                                text: item.relative_time;
+                                font-size: 12px;
+                                color: Theme.text-subtle;
+                                overflow: elide;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+
+                    // Columna 5: UUID
+                    Rectangle {
+                        width: 85px;
+                        clip: true;
+                        HorizontalLayout {
+                            alignment: start;
+                            Text {
+                                text: item.short_id;
+                                font-size: 11px;
+                                font-family: "monospace";
+                                color: Theme.text-dim;
+                                overflow: elide;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+
+                item_touch := TouchArea {
+                    clicked => {
+                        root.row_selected(idx, item.id);
+                    }
+                    double_clicked => {
+                        root.row_double_clicked(idx, item.id);
+                    }
+                    pointer_event(event) => {
+                        if event.button == PointerEventButton.right && event.kind == PointerEventKind.up {
+                            root.row_right_clicked(idx, item.id, self.mouse-x, self.mouse-y);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Estado vacío si no hay resultados
+        if root.conversations.length == 0: Rectangle {
+            vertical-stretch: 1;
+            VerticalLayout {
+                alignment: center;
+                spacing: 8px;
+                Text {
+                    text: "🔍";
+                    font-size: 36px;
+                    color: Theme.text-subtle;
+                    horizontal-alignment: center;
+                }
+                Text {
+                    text: "No se encontraron conversaciones";
+                    font-size: 15px;
+                    font-weight: 600;
+                    color: Theme.text-main;
+                    horizontal-alignment: center;
+                }
+                Text {
+                    text: "Prueba con otro término de búsqueda o cambia el filtro activo.";
+                    font-size: 12px;
+                    color: Theme.text-subtle;
+                    horizontal-alignment: center;
+                }
+            }
+        }
+
+        // Línea divisoria
+        Rectangle {
+            height: 1px;
+            background: Theme.border-subtle;
+        }
+
+        // 5. Barra Inferior de Acciones con emojis
+        Rectangle {
+            background: Theme.bg-header;
+            height: 48px;
+
+            HorizontalLayout {
+                padding-left: 18px;
+                padding-right: 18px;
+                spacing: 10px;
+
+                Text {
+                    text: root.selected_index >= 0 ? ("Seleccionado: \"" + root.selected_title + "\" (" + root.selected_id + ")") : "Selecciona una conversación para duplicar, ver detalles, exportar o eliminar.";
+                    font-size: 12px;
+                    color: root.selected_index >= 0 ? Theme.text-main : Theme.text-subtle;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                    vertical-alignment: center;
+                }
+
+                StyledButton {
+                    text: "Detalles";
+                    icon: "🗂️";
+                    enabled: root.selected_index >= 0;
+                    clicked => { root.action_details(); }
+                }
+
+                StyledButton {
+                    text: "Duplicar";
+                    icon: "📋";
+                    enabled: root.selected_index >= 0;
+                    clicked => { root.action_duplicate(); }
+                }
+
+                StyledButton {
+                    text: "Exportar";
+                    icon: "📦";
+                    enabled: root.selected_index >= 0;
+                    clicked => { root.action_export(); }
+                }
+
+                StyledButton {
+                    text: "Eliminar";
+                    icon: "🗑️";
+                    variant: "danger";
+                    enabled: root.selected_index >= 0;
+                    clicked => { root.action_delete(); }
+                }
+            }
+        }
+
+        // Línea divisoria
+        Rectangle {
+            height: 1px;
+            background: #ffffff0a;
+        }
+
+        // 6. Barra de Estado del Sistema (alineada con punto indicador verde/ámbar)
+        Rectangle {
+            background: #090c12;
+            height: 30px;
+
+            HorizontalLayout {
+                padding-left: 18px;
+                padding-right: 18px;
+                spacing: 8px;
+
+                Rectangle {
+                    width: 7px;
+                    height: 7px;
+                    border-radius: 4px;
+                    y: (parent.height - self.height) / 2;
+                    background: root.ls_connected ? Theme.accent-emerald : Theme.accent-amber;
+                }
+
+                Text {
+                    text: root.ls_status_text;
+                    font-size: 11px;
+                    font-weight: 500;
+                    color: root.ls_connected ? Theme.accent-emerald : Theme.accent-amber;
+                    vertical-alignment: center;
+                }
+
+                Rectangle { horizontal-stretch: 1; }
+
+                Text {
+                    text: root.disk_summary_text;
+                    font-size: 11px;
+                    font-family: "monospace";
+                    color: Theme.text-subtle;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+
+    // Menú contextual flotante (Click derecho con emojis)
+    if root.show_context_menu: Rectangle {
+        x: root.menu_x;
+        y: root.menu_y;
+        width: 230px;
+        background: #171d28;
+        border-width: 1px;
+        border-color: #ffffff20;
+        border-radius: Theme.radius-md;
+        drop-shadow-blur: 20px;
+        drop-shadow-color: #000000aa;
+
+        VerticalLayout {
+            padding: 6px;
+            spacing: 2px;
+
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: ctx1.has-hover ? Theme.accent-blue : #00000000;
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    Text {
+                        text: "🗂️ Ver detalles";
+                        font-size: 12px;
+                        color: #ffffff;
+                        vertical-alignment: center;
+                    }
+                }
+                ctx1 := TouchArea {
+                    clicked => {
+                        root.show_context_menu = false;
+                        root.action_details();
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: ctx2.has-hover ? Theme.accent-blue : #00000000;
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    Text {
+                        text: "📋 Duplicar conversación";
+                        font-size: 12px;
+                        color: #ffffff;
+                        vertical-alignment: center;
+                    }
+                }
+                ctx2 := TouchArea {
+                    clicked => {
+                        root.show_context_menu = false;
+                        root.action_duplicate();
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: ctx3.has-hover ? Theme.accent-blue : #00000000;
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    Text {
+                        text: "📦 Exportar a .agychat";
+                        font-size: 12px;
+                        color: #ffffff;
+                        vertical-alignment: center;
+                    }
+                }
+                ctx3 := TouchArea {
+                    clicked => {
+                        root.show_context_menu = false;
+                        root.action_export();
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 1px;
+                background: #ffffff15;
+            }
+
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: ctx4.has-hover ? Theme.accent-blue : #00000000;
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    Text {
+                        text: "📋 Copiar UUID";
+                        font-size: 12px;
+                        color: #ffffff;
+                        vertical-alignment: center;
+                    }
+                }
+                ctx4 := TouchArea {
+                    clicked => {
+                        root.show_context_menu = false;
+                        root.copy_uuid();
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 1px;
+                background: #ffffff15;
+            }
+
+            Rectangle {
+                height: 30px;
+                border-radius: 4px;
+                background: ctx5.has-hover ? #dc2626 : #00000000;
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    Text {
+                        text: "🗑️ Eliminar conversación";
+                        font-size: 12px;
+                        color: #f87171;
+                        vertical-alignment: center;
+                    }
+                }
+                ctx5 := TouchArea {
+                    clicked => {
+                        root.show_context_menu = false;
+                        root.action_delete();
+                    }
+                }
+            }
+        }
+    }
+
+    // Modal 1: Detalles
+    DetailsModal {
+        show <=> root.show_details;
+        title: root.selected_title;
+        uuid: root.selected_id;
+        project: root.det_project;
+        path: root.det_path;
+        steps: root.det_steps;
+        date: root.det_date;
+        db-size: root.det_db_size;
+        brain-size: root.det_brain_size;
+        brain-files: root.det_brain_files;
+        total-size: root.det_total_size;
+
+        close => { root.show_details = false; }
+        open-folder => { root.open_workspace_folder(); }
+        copy-uuid => { root.copy_uuid(); }
+        copy-ficha => { root.copy_ficha(); }
+    }
+
+    // Modal 2: Duplicar
+    DuplicateModal {
+        show <=> root.show_duplicate;
+        original-title: root.selected_title;
+        new-title <=> root.dup_new_title;
+
+        close => { root.show_duplicate = false; }
+        confirm => {
+            root.show_duplicate = false;
+            root.confirm_duplicate(root.dup_new_title);
+        }
+    }
+
+    // Modal 3: Importar
+    ImportModal {
+        show <=> root.show_import;
+        archive-path <=> root.imp_archive_path;
+        custom-title <=> root.imp_custom_title;
+        target-workspace <=> root.imp_target_workspace;
+        new-id <=> root.imp_new_id;
+        overwrite <=> root.imp_overwrite;
+
+        close => { root.show_import = false; }
+        browse-archive => { root.import_browse_archive(); }
+        browse-workspace => { root.import_browse_workspace(); }
+        confirm => {
+            root.show_import = false;
+            root.confirm_import(
+                root.imp_archive_path,
+                root.imp_custom_title,
+                root.imp_target_workspace,
+                root.imp_new_id,
+                root.imp_overwrite
+            );
+        }
+    }
+
+    // Modal 4: Eliminar
+    DeleteModal {
+        show <=> root.show_delete;
+        title: root.selected_title;
+        uuid: root.selected_id;
+
+        close => { root.show_delete = false; }
+        confirm => {
+            root.show_delete = false;
+            root.confirm_delete(root.selected_id);
+        }
+    }
+
+    // Notificación Toast
+    Rectangle {
+        x: parent.width - 340px;
+        y: parent.height - 76px;
+        width: 310px;
+        Toast {
+            message: root.toast_message;
+            is_visible: root.toast_visible;
+        }
+    }
+}

@@ -2,7 +2,7 @@
 
 Herramienta de escritorio y línea de comandos para **ramificar, duplicar, exportar e importar** conversaciones en **Google Antigravity**, manteniendo el historial completo de análisis, transcripciones y artefactos sin necesidad de volver a leer ni indexar los contenidos del proyecto.
 
-Cuenta con **interfaz de consola (CLI)** y una **aplicación de escritorio gráfica (GUI en PyQt6)** con soporte de modo oscuro, arrastrar y soltar (*drag & drop*) e integración en el gestor de tareas del sistema.
+Cuenta con **interfaz de consola (CLI)** y una **aplicación de escritorio gráfica nativa en Rust + Slint** con soporte de modo oscuro, filtros en tiempo real, modales interactivos e integración en el gestor de tareas del sistema. Todo compilado en un **único binario nativo independiente** sin necesidad de dependencias externas ni entornos virtuales.
 
 ---
 
@@ -14,7 +14,8 @@ Al iniciar un chat nuevo, los asistentes de IA deben releer e indexar todo el re
 
 ## ✨ Características
 
-* **Interfaz Gráfica (PyQt6):** Nativa, en modo oscuro, con buscador en tiempo real y soporte Drag & Drop.
+* **Binario Único Nativo (Rust + Slint):** Rendimiento ultrarrápido (<20ms de inicio), bajo consumo de memoria y cero dependencias de runtime.
+* **Interfaz Gráfica Moderna:** Diseñada con Slint, modo oscuro nativo, buscador instantáneo (`Ctrl+F`), chips de filtrado rápido y notificaciones *Toast*.
 * **Integración en el Sistema:** Lanzador `.desktop` e icono vectorial visible en el menú y gestor de tareas.
 * **Duplicación en Caliente:** Ramifica chats al instante conectándose con `language_server` sin reiniciar la app.
 * **Exportación Portátil:** Empaqueta historial SQLite, metadatos y artefactos en archivos `.agychat`.
@@ -41,6 +42,7 @@ chmod +x install.sh
 ```
 
 El script se encarga automáticamente de:
+* Compilar el binario nativo optimizado con Cargo (`cargo build --release`).
 * Registrar el comando **`agychat`** en `~/.local/bin` (junto con alias de compatibilidad).
 * Instalar el icono vectorial en `~/.local/share/icons/hicolor/scalable/apps/agychat.svg`.
 * Registrar el lanzador de escritorio en `~/.local/share/applications/agychat.desktop`.
@@ -58,7 +60,11 @@ Puedes abrir la aplicación gráfica de dos formas:
    ```
 2. **Desde el menú de aplicaciones:** Presiona la tecla `Super` (Windows) y escribe **"agychat"**.
 
-![agychat GUI](screenshot.png)
+### Ventana Principal
+![agychat GUI - Ventana Principal](screenshots/main_window.png)
+
+### Ficha Técnica y Detalles de Conversación
+![agychat GUI - Ficha Técnica](screenshots/details_modal.png)
 
 ---
 
@@ -180,9 +186,8 @@ agychat --delete "Analisis Inicial" --force
 ## 📋 Requisitos del Sistema
 
 * **Sistema Operativo:** Linux
-* **Python:** 3.8 o superior
-* **PyQt6:** Para la interfaz gráfica (generalmente preinstalado o `sudo apt install python3-pyqt6` / `pip install PyQt6`).
-* **Google Antigravity:** Instalado. (Para duplicación en vivo o carga inmediata al importar, debe encontrarse en ejecución; de lo contrario, la importación se registrará para el próximo inicio).
+* **Rust & Cargo:** 1.70 o superior (solo necesario para compilar desde el código fuente; la ejecución del binario no requiere runtime externo).
+* **Google Antigravity:** Instalado. (Para duplicación en caliente o carga inmediata al importar, debe encontrarse en ejecución; de lo contrario, la importación se registrará automáticamente para el próximo inicio).
 
 ---
 
