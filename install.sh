@@ -10,14 +10,23 @@ TARGET_BIN="$SCRIPT_DIR/target/release/agychat"
 
 echo "=== Instalando Antigravity Chat Manager (agychat) en Rust + Slint ==="
 
-# 1. Compilar en release si el binario no existe aún
-if [ ! -f "$TARGET_BIN" ]; then
+# 1. Detectar binario precompilado o compilar en release
+if [ -f "$SCRIPT_DIR/agychat" ]; then
+    TARGET_BIN="$SCRIPT_DIR/agychat"
+    echo "📦 Utilizando binario precompilado: $TARGET_BIN"
+elif [ -f "$SCRIPT_DIR/target/release/agychat" ]; then
+    TARGET_BIN="$SCRIPT_DIR/target/release/agychat"
+else
     echo "🔨 Compilando binario optimizado en release (cargo build --release)..."
     (cd "$SCRIPT_DIR" && cargo build --release)
+    TARGET_BIN="$SCRIPT_DIR/target/release/agychat"
 fi
 
 # 2. Asegurar permisos de ejecución
-chmod +x "$TARGET_BIN" "$SCRIPT_DIR/uninstall.sh"
+chmod +x "$TARGET_BIN"
+if [ -f "$SCRIPT_DIR/uninstall.sh" ]; then
+    chmod +x "$SCRIPT_DIR/uninstall.sh"
+fi
 
 # 3. Crear directorios necesarios
 mkdir -p "$BIN_DIR" "$APPS_DIR" "$ICONS_DIR"

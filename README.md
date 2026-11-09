@@ -25,27 +25,44 @@ Al iniciar un chat nuevo, los asistentes de IA deben releer e indexar todo el re
 
 ---
 
-## 🚀 Instalación
+## 🚀 Instalación y Uso
 
-1. Clonar el repositorio y acceder a la carpeta:
+### Opción 1: AppImage Portable (Recomendada - Sin instalación)
+Descarga el archivo `agychat-x86_64.AppImage` desde los [Releases de GitHub](https://github.com/Tiago-Pujia/agychat/releases), dale permisos de ejecución y ejecútalo con doble clic o desde terminal:
+
+```bash
+chmod +x agychat-x86_64.AppImage
+
+# Abre directamente la interfaz gráfica interactiva:
+./agychat-x86_64.AppImage
+
+# O úsalo como CLI en terminal:
+./agychat-x86_64.AppImage -l
+```
+
+---
+
+### Opción 2: Paquete Tarball con Instalador
+Descarga `agychat-linux-x86_64.tar.gz` desde los [Releases de GitHub](https://github.com/Tiago-Pujia/agychat/releases):
+
+```bash
+tar -xvf agychat-linux-x86_64.tar.gz
+cd agychat
+./install.sh
+```
+El instalador registrará automáticamente el binario precompilado en `~/.local/bin/agychat`, el icono oficial y el lanzador en tu menú de aplicaciones del sistema.
+
+---
+
+### Opción 3: Compilar desde Fuente (con Git y Cargo)
 
 ```bash
 git clone https://github.com/Tiago-Pujia/agychat.git
 cd agychat
-```
-
-2. Otorgar permisos de ejecución y ejecutar el instalador:
-
-```bash
 chmod +x install.sh
 ./install.sh
 ```
-
-El script se encarga automáticamente de:
-* Compilar el binario nativo optimizado con Cargo (`cargo build --release`).
-* Registrar el comando **`agychat`** en `~/.local/bin` (junto con alias de compatibilidad).
-* Instalar el icono vectorial en `~/.local/share/icons/hicolor/scalable/apps/agychat.svg`.
-* Registrar el lanzador de escritorio en `~/.local/share/applications/agychat.desktop`.
+El script compilará automáticamente con `cargo build --release` e instalará el binario y el acceso de escritorio.
 
 ---
 
