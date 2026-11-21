@@ -77,6 +77,7 @@ fn create_client() -> Result<reqwest::blocking::Client, reqwest::Error> {
 }
 
 /// Invoca los endpoints Connect/gRPC en vivo de Antigravity para bifurcar (fork) un chat.
+#[allow(dead_code)]
 pub fn fork_via_api(
     source_id: &str,
     new_title: &str,

@@ -5,7 +5,9 @@ use crate::db::{
 };
 use crate::ls_client::get_live_ls_info;
 use crate::models::ConversationSummary;
-use crate::utils::{extract_workspace_info, format_bytes, format_relative_time};
+use crate::utils::{
+    format_bytes, format_relative_time, get_known_projects, resolve_project_and_workspace,
+};
 use arboard::Clipboard;
 use chrono::{DateTime, Utc};
 use slint::{ComponentHandle, ModelRc, VecModel};
@@ -85,10 +87,11 @@ pub fn launch_gui() -> Result<(), slint::PlatformError> {
                 let mut copies_cnt = 0;
                 let mut recent_cnt = 0;
 
+                let known_projects = get_known_projects();
                 let now = Utc::now();
                 for c in &st.all_conversations {
-                    let (ws_name, _) = extract_workspace_info(&c.workspace_uris);
-                    if ws_name != "(Sin workspace)" {
+                    let (proj_name, _) = resolve_project_and_workspace(&c.project_id, &c.workspace_uris, &known_projects);
+                    if proj_name != "(Sin workspace)" {
                         ws_cnt += 1;
                     }
                     if c.title.to_lowercase().contains("(copia)") {
@@ -264,10 +267,11 @@ pub fn launch_gui() -> Result<(), slint::PlatformError> {
                 let cid = w.get_selected_id();
                 let st = state.lock().unwrap();
                 if let Some(conv) = st.all_conversations.iter().find(|c| c.conversation_id == cid.as_str()) {
-                    let (ws_name, local_path) = extract_workspace_info(&conv.workspace_uris);
+                    let known_projects = get_known_projects();
+                    let (proj_name, local_path) = resolve_project_and_workspace(&conv.project_id, &conv.workspace_uris, &known_projects);
                     let disk = get_conversation_disk_info(&conv.conversation_id);
 
-                    w.set_det_project(ws_name.into());
+                    w.set_det_project(proj_name.into());
                     w.set_det_path(local_path.into());
                     w.set_det_steps(conv.step_count as i32);
                     w.set_det_date(format_relative_time(&conv.last_modified_time).into());
@@ -531,17 +535,18 @@ fn apply_filter_and_sort(
     let q = state.search_query.to_lowercase().trim().to_string();
     let filter = &state.active_filter;
     let now = Utc::now();
+    let known_projects = get_known_projects();
 
     let mut filtered: Vec<ConversationSummary> = state
         .all_conversations
         .iter()
         .filter(|c| {
-            let (ws_name, _) = extract_workspace_info(&c.workspace_uris);
+            let (proj_name, local_path) = resolve_project_and_workspace(&c.project_id, &c.workspace_uris, &known_projects);
 
             // Filtro de categoría
             match filter.as_str() {
                 "workspace" => {
-                    if ws_name == "(Sin workspace)" {
+                    if proj_name == "(Sin workspace)" {
                         return false;
                     }
                 }
@@ -565,9 +570,10 @@ fn apply_filter_and_sort(
             // Filtro de texto
             if !q.is_empty() {
                 let matches_title = c.title.to_lowercase().contains(&q);
-                let matches_ws = ws_name.to_lowercase().contains(&q);
+                let matches_proj = proj_name.to_lowercase().contains(&q);
+                let matches_path = local_path.to_lowercase().contains(&q);
                 let matches_id = c.conversation_id.to_lowercase().contains(&q);
-                if !matches_title && !matches_ws && !matches_id {
+                if !matches_title && !matches_proj && !matches_path && !matches_id {
                     return false;
                 }
             }
@@ -582,8 +588,8 @@ fn apply_filter_and_sort(
         let cmp = match state.sort_column {
             0 => a.title.to_lowercase().cmp(&b.title.to_lowercase()),
             1 => {
-                let (w_a, _) = extract_workspace_info(&a.workspace_uris);
-                let (w_b, _) = extract_workspace_info(&b.workspace_uris);
+                let (w_a, _) = resolve_project_and_workspace(&a.project_id, &a.workspace_uris, &known_projects);
+                let (w_b, _) = resolve_project_and_workspace(&b.project_id, &b.workspace_uris, &known_projects);
                 w_a.to_lowercase().cmp(&w_b.to_lowercase())
             }
             2 => a.step_count.cmp(&b.step_count),
@@ -610,7 +616,7 @@ fn apply_filter_and_sort(
             }
         }
 
-        let (ws_name, local_path) = extract_workspace_info(&item.workspace_uris);
+        let (proj_name, local_path) = resolve_project_and_workspace(&item.project_id, &item.workspace_uris, &known_projects);
         let short_id = if item.conversation_id.len() >= 8 {
             format!("{}...", &item.conversation_id[..8])
         } else {
@@ -621,7 +627,7 @@ fn apply_filter_and_sort(
             id: item.conversation_id.clone().into(),
             short_id: short_id.into(),
             title: if item.title.trim().is_empty() { "(Sin título)".into() } else { item.title.clone().into() },
-            project: ws_name.into(),
+            project: proj_name.into(),
             local_path: local_path.into(),
             steps: item.step_count as i32,
             relative_time: format_relative_time(&item.last_modified_time).into(),

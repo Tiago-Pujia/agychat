@@ -3,9 +3,9 @@ use crate::ls_client::{get_live_ls_info, load_trajectory_via_api, update_annotat
 use crate::models::ArchiveManifest;
 use crate::paths::{
     agyhub_summaries_pb_path, annotations_dir, base_dir, brain_dir, conversations_dir,
-    home_dir, projects_dir, summaries_db_path,
+    home_dir, summaries_db_path,
 };
-use crate::utils::replace_bytes;
+use crate::utils::{get_known_projects, replace_bytes};
 use chrono::Utc;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
@@ -281,107 +281,117 @@ pub fn import_conversation(
         orig_cid.clone()
     };
 
-    // 1. Resolver Workspace en la máquina destino
-    let mut remapped_workspaces: Vec<String> = Vec::new();
-    if let Some(tw) = target_workspace {
-        let p = Path::new(tw);
-        let abs = if p.is_absolute() {
-            p.to_path_buf()
-        } else {
-            std::env::current_dir()
-                .unwrap_or_default()
-                .join(p)
-        };
-        remapped_workspaces.push(format!("file://{}", abs.to_string_lossy()));
-    } else {
-        let source_home = &manifest.source_home;
-        let target_home = home_dir().to_string_lossy().to_string();
+    let known_projects = get_known_projects();
 
-        for ws in &manifest.workspace_uris {
-            if !source_home.is_empty() && source_home != &target_home {
-                let remapped = ws.replace(
-                    &format!("file://{}", source_home),
-                    &format!("file://{}", target_home),
-                );
-                remapped_workspaces.push(remapped);
+    // 1. Resolver Workspace y Project ID en la máquina destino
+    let mut remapped_workspaces: Vec<String> = Vec::new();
+    let mut target_project_id = String::new();
+
+    if let Some(tw) = target_workspace.filter(|s| !s.trim().is_empty()) {
+        let tw_trimmed = tw.trim();
+        // Verificar si coincide con el nombre o ID de un proyecto conocido (ej. "LibreMIEL")
+        if let Some(p) = known_projects.iter().find(|p| {
+            p.name.eq_ignore_ascii_case(tw_trimmed)
+                || p.id.eq_ignore_ascii_case(tw_trimmed)
+        }) {
+            target_project_id = p.id.clone();
+            remapped_workspaces.push(p.folder_uri.clone());
+        } else {
+            let p = Path::new(tw_trimmed);
+            let abs = if p.is_absolute() {
+                p.to_path_buf()
             } else {
-                remapped_workspaces.push(ws.clone());
+                std::env::current_dir()
+                    .unwrap_or_default()
+                    .join(p)
+            };
+            let uri = format!("file://{}", abs.to_string_lossy());
+            remapped_workspaces.push(uri.clone());
+
+            let norm_uri = uri.trim_end_matches('/').to_lowercase();
+            if let Some(kp) = known_projects
+                .iter()
+                .find(|kp| kp.folder_uri.trim_end_matches('/').to_lowercase() == norm_uri)
+            {
+                target_project_id = kp.id.clone();
             }
         }
-
-        // Si la ruta no existe en este equipo, verificar si el CWD actual tiene .git
-        if !remapped_workspaces.is_empty() {
-            let check_path = remapped_workspaces[0].replace("file://", "");
-            if !Path::new(&check_path).exists() {
-                if let Ok(cwd) = std::env::current_dir() {
-                    if cwd.join(".git").exists() {
-                        remapped_workspaces = vec![format!("file://{}", cwd.to_string_lossy())];
-                    }
+    } else {
+        // Si no se especificó target_workspace, verificar si manifest.project_id coincide con un proyecto local
+        if !manifest.project_id.is_empty() {
+            if let Some(p) = known_projects.iter().find(|p| p.id == manifest.project_id) {
+                target_project_id = p.id.clone();
+                if !p.folder_uri.is_empty() {
+                    remapped_workspaces.push(p.folder_uri.clone());
                 }
             }
         }
-    }
 
-    // 2. Resolver project_id en la máquina destino
-    let mut target_project_id = String::new();
-    if !remapped_workspaces.is_empty() {
-        let norm_uri = remapped_workspaces[0].trim_end_matches('/').to_lowercase();
-
-        // 2a. Buscar en ~/.gemini/config/projects/*.json
-        let p_dir = projects_dir();
-        if p_dir.exists() {
-            if let Ok(entries) = fs::read_dir(p_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.extension().and_then(|s| s.to_str()) == Some("json") {
-                        if let Ok(content) = fs::read_to_string(&path) {
-                            if let Ok(pdata) = serde_json::from_str::<Value>(&content) {
-                                if let Some(res_arr) = pdata
-                                    .get("projectResources")
-                                    .and_then(|pr| pr.get("resources"))
-                                    .and_then(|r| r.as_array())
-                                {
-                                    for r in res_arr {
-                                        let folder_uri = r
-                                            .get("folderUri")
-                                            .or_else(|| r.get("gitFolder").and_then(|gf| gf.get("folderUri")))
-                                            .and_then(|u| u.as_str())
-                                            .unwrap_or_default();
-                                        if !folder_uri.is_empty()
-                                            && folder_uri.trim_end_matches('/').to_lowercase() == norm_uri
-                                        {
-                                            if let Some(id_str) = pdata.get("id").and_then(|id| id.as_str()) {
-                                                target_project_id = id_str.to_string();
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if !target_project_id.is_empty() {
+        // Si todavía no se resolvió workspace, verificar si la carpeta del workspace coincide con un proyecto conocido
+        if remapped_workspaces.is_empty() {
+            for ws in &manifest.workspace_uris {
+                let ws_name = ws.trim_end_matches('/').split('/').last().unwrap_or_default();
+                if !ws_name.is_empty() {
+                    if let Some(p) = known_projects.iter().find(|p| p.name.eq_ignore_ascii_case(ws_name)) {
+                        target_project_id = p.id.clone();
+                        remapped_workspaces.push(p.folder_uri.clone());
                         break;
                     }
                 }
             }
         }
 
-        // 2b. Si no se encontró, buscar en los chats existentes en conversation_summaries.db
-        if target_project_id.is_empty() {
-            if let Ok(conn) = Connection::open_with_flags(
-                summaries_db_path(),
-                OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-            ) {
-                let pattern = format!("%{}%", remapped_workspaces[0]);
-                let found: rusqlite::Result<String> = conn.query_row(
-                    "SELECT project_id FROM conversation_summaries WHERE workspace_uris LIKE ?1 AND project_id != '' LIMIT 1",
-                    params![pattern],
-                    |r| r.get(0),
-                );
-                if let Ok(p_id) = found {
-                    target_project_id = p_id;
+        // Si sigue sin resolverse, aplicar remapeo de $HOME
+        if remapped_workspaces.is_empty() {
+            let source_home = &manifest.source_home;
+            let target_home = home_dir().to_string_lossy().to_string();
+
+            for ws in &manifest.workspace_uris {
+                if !source_home.is_empty() && source_home != &target_home {
+                    let remapped = ws.replace(
+                        &format!("file://{}", source_home),
+                        &format!("file://{}", target_home),
+                    );
+                    remapped_workspaces.push(remapped);
+                } else {
+                    remapped_workspaces.push(ws.clone());
                 }
+            }
+
+            // Si la ruta no existe en este equipo, verificar si el CWD actual tiene .git
+            if !remapped_workspaces.is_empty() {
+                let check_path = remapped_workspaces[0].replace("file://", "");
+                if !Path::new(&check_path).exists() {
+                    if let Ok(cwd) = std::env::current_dir() {
+                        if cwd.join(".git").exists() {
+                            remapped_workspaces = vec![format!("file://{}", cwd.to_string_lossy())];
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Si target_project_id aún no se resolvió, buscar por URI de workspace o en chats existentes
+    if target_project_id.is_empty() && !remapped_workspaces.is_empty() {
+        let norm_uri = remapped_workspaces[0].trim_end_matches('/').to_lowercase();
+        if let Some(kp) = known_projects
+            .iter()
+            .find(|kp| kp.folder_uri.trim_end_matches('/').to_lowercase() == norm_uri)
+        {
+            target_project_id = kp.id.clone();
+        } else if let Ok(conn) = Connection::open_with_flags(
+            summaries_db_path(),
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        ) {
+            let pattern = format!("%{}%", remapped_workspaces[0]);
+            let found: rusqlite::Result<String> = conn.query_row(
+                "SELECT project_id FROM conversation_summaries WHERE workspace_uris LIKE ?1 AND project_id != '' LIMIT 1",
+                params![pattern],
+                |r| r.get(0),
+            );
+            if let Ok(p_id) = found {
+                target_project_id = p_id;
             }
         }
     }

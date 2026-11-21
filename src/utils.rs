@@ -128,6 +128,105 @@ pub fn extract_workspace_info(ws_raw: &str) -> (String, String) {
     (display_name, local_path)
 }
 
+/// Lee todos los proyectos registrados en ~/.gemini/config/projects/*.json
+pub fn get_known_projects() -> Vec<crate::models::ProjectInfo> {
+    let mut projects = Vec::new();
+    let p_dir = crate::paths::projects_dir();
+    if !p_dir.exists() {
+        return projects;
+    }
+
+    if let Ok(entries) = std::fs::read_dir(p_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("json") {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    if let Ok(data) = serde_json::from_str::<serde_json::Value>(&content) {
+                        let id = data.get("id").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+                        let name = data.get("name").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+
+                        let mut folder_uri = String::new();
+                        if let Some(res_arr) = data
+                            .get("projectResources")
+                            .and_then(|pr| pr.get("resources"))
+                            .and_then(|r| r.as_array())
+                        {
+                            for r in res_arr {
+                                let f_uri = r
+                                    .get("folderUri")
+                                    .or_else(|| r.get("gitFolder").and_then(|gf| gf.get("folderUri")))
+                                    .and_then(|u| u.as_str())
+                                    .unwrap_or_default();
+                                if !f_uri.is_empty() {
+                                    folder_uri = f_uri.to_string();
+                                    break;
+                                }
+                            }
+                        }
+
+                        if !id.is_empty() {
+                            projects.push(crate::models::ProjectInfo {
+                                id,
+                                name,
+                                folder_uri,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    projects
+}
+
+/// Resuelve el nombre amigable de proyecto y la ruta local usando project_id y workspace_uris.
+pub fn resolve_project_and_workspace(
+    project_id: &str,
+    ws_raw: &str,
+    known_projects: &[crate::models::ProjectInfo],
+) -> (String, String) {
+    let (ws_name, local_path) = extract_workspace_info(ws_raw);
+
+    // 1. Coincidencia por project_id
+    if !project_id.is_empty() {
+        if let Some(p) = known_projects.iter().find(|p| p.id == project_id) {
+            let path = if !local_path.is_empty() {
+                local_path
+            } else {
+                p.folder_uri.replace("file://", "")
+            };
+            return (p.name.clone(), path);
+        }
+    }
+
+    // 2. Coincidencia por folder_uri
+    if !ws_raw.is_empty() {
+        let norm_uri = ws_raw.trim_matches('[').trim_matches(']').trim_matches('"').trim_end_matches('/').to_lowercase();
+        if let Some(p) = known_projects.iter().find(|p| p.folder_uri.trim_end_matches('/').to_lowercase() == norm_uri) {
+            return (p.name.clone(), local_path);
+        }
+    }
+
+    (ws_name, local_path)
+}
+
+/// Copia un directorio recursivamente.
+pub fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let dest_path = dst.join(entry.file_name());
+        if ty.is_dir() {
+            copy_dir_all(&entry.path(), &dest_path)?;
+        } else {
+            std::fs::copy(entry.path(), dest_path)?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -157,5 +256,32 @@ mod tests {
         let (name, path) = extract_workspace_info("file:///home/tiago/Proyectos/agychat%20test");
         assert_eq!(name, "agychat test");
         assert_eq!(path, "/home/tiago/Proyectos/agychat test");
+    }
+
+    #[test]
+    fn test_resolve_project_and_workspace() {
+        let projects = vec![crate::models::ProjectInfo {
+            id: "proj-123".to_string(),
+            name: "LibreMIEL".to_string(),
+            folder_uri: "file:///home/tiago/Proyectos/LibreMIEL".to_string(),
+        }];
+
+        // Por project_id
+        let (name, path) = resolve_project_and_workspace(
+            "proj-123",
+            "[\"file:///home/tiago/GoogleDrive/Universidad\"]",
+            &projects,
+        );
+        assert_eq!(name, "LibreMIEL");
+        assert_eq!(path, "/home/tiago/GoogleDrive/Universidad");
+
+        // Por folder_uri si project_id es vacío
+        let (name2, path2) = resolve_project_and_workspace(
+            "",
+            "file:///home/tiago/Proyectos/LibreMIEL",
+            &projects,
+        );
+        assert_eq!(name2, "LibreMIEL");
+        assert_eq!(path2, "/home/tiago/Proyectos/LibreMIEL");
     }
 }

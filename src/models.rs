@@ -42,3 +42,10 @@ pub struct LiveLsInfo {
     pub port: u16,
     pub csrf_token: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectInfo {
+    pub id: String,
+    pub name: String,
+    pub folder_uri: String,
+}
