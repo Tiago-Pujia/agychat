@@ -162,8 +162,13 @@ jobs:
           path: release-artifacts
           merge-multiple: true
 
-      - name: List collected release assets
-        run: ls -la release-artifacts/
+      - name: Flatten and list collected release assets
+        run: |
+          if [ -d release-artifacts/dist ]; then
+            mv release-artifacts/dist/* release-artifacts/
+            rmdir release-artifacts/dist
+          fi
+          ls -la release-artifacts/
 
       - name: Create or Update GitHub Release
         uses: softprops/action-gh-release@v2
