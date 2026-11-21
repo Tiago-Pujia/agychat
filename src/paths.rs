@@ -31,11 +31,32 @@ pub fn brain_dir() -> PathBuf {
 }
 
 pub fn ls_log_path() -> PathBuf {
-    home_dir()
-        .join(".config")
-        .join("Antigravity")
-        .join("logs")
-        .join("language_server.log")
+    let mut candidates = Vec::new();
+
+    if let Some(config) = dirs::config_dir() {
+        candidates.push(config.join("Antigravity").join("logs").join("language_server.log"));
+    }
+
+    let home = home_dir();
+    candidates.push(home.join(".config").join("Antigravity").join("logs").join("language_server.log"));
+
+    #[cfg(target_os = "macos")]
+    {
+        candidates.push(home.join("Library").join("Application Support").join("Antigravity").join("logs").join("language_server.log"));
+        candidates.push(home.join("Library").join("Logs").join("Antigravity").join("language_server.log"));
+    }
+
+    for path in &candidates {
+        if path.exists() {
+            return path.clone();
+        }
+    }
+
+    if let Some(config) = dirs::config_dir() {
+        config.join("Antigravity").join("logs").join("language_server.log")
+    } else {
+        home.join(".config").join("Antigravity").join("logs").join("language_server.log")
+    }
 }
 
 pub fn projects_dir() -> PathBuf {

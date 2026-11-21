@@ -10,7 +10,8 @@ use std::time::Duration;
 pub fn get_live_ls_info() -> Option<LiveLsInfo> {
     let mut csrf_token = None;
 
-    // 1. Escanear /proc buscando el proceso language_server y el parámetro --csrf_token
+    // 1. Escanear /proc buscando el proceso language_server y el parámetro --csrf_token (Linux)
+    #[cfg(target_os = "linux")]
     if let Ok(entries) = fs::read_dir("/proc") {
         let re_null = Regex::new(r"--csrf_token\x00([a-f0-9-]+)").ok()?;
         let re_space = Regex::new(r"--csrf_token\s+([a-f0-9-]+)").ok()?;
@@ -32,6 +33,33 @@ pub fn get_live_ls_info() -> Option<LiveLsInfo> {
                     } else if let Some(caps) = re_space.captures(&cmdline) {
                         csrf_token = Some(caps[1].to_string());
                         break;
+                    }
+                }
+            }
+        }
+    }
+
+    // Si no se detectó por /proc (macOS, Windows o entorno sin /proc), usar sysinfo
+    if csrf_token.is_none() {
+        use sysinfo::{ProcessesToUpdate, System};
+        if let Ok(mut sys) = System::new() {
+            sys.refresh_processes(ProcessesToUpdate::All, true);
+            if let Ok(re_token) = Regex::new(r"--csrf_token(?:=|\s+|\x00)([a-f0-9-]+)") {
+                for process in sys.processes().values() {
+                    let name = process.name().to_string_lossy();
+                    let cmd: Vec<String> = process
+                        .cmd()
+                        .iter()
+                        .map(|s| s.to_string_lossy().into_owned())
+                        .collect();
+                    let cmd_str = cmd.join(" ");
+                    if (name.contains("language_server") || cmd_str.contains("language_server"))
+                        && cmd_str.contains("--csrf_token")
+                    {
+                        if let Some(caps) = re_token.captures(&cmd_str) {
+                            csrf_token = Some(caps[1].to_string());
+                            break;
+                        }
                     }
                 }
             }

@@ -25,44 +25,85 @@ Al iniciar un chat nuevo, los asistentes de IA deben releer e indexar todo el re
 
 ---
 
-## 🚀 Instalación y Uso
+## 🚀 Descargas e Instalación
 
-### Opción 1: AppImage Portable (Recomendada - Sin instalación)
-Descarga el archivo `agychat-x86_64.AppImage` desde los [Releases de GitHub](https://github.com/Tiago-Pujia/agychat/releases), dale permisos de ejecución y ejecútalo con doble clic o desde terminal:
+Los binarios y paquetes precompilados están disponibles en los **[Releases de GitHub](https://github.com/Tiago-Pujia/agychat/releases)**.
 
+### 🐧 Linux
+
+#### 1. AppImage Portable (Recomendada — Sin instalación)
+Funciona en cualquier distribución Linux moderna sin instalar dependencias:
 ```bash
 chmod +x agychat-x86_64.AppImage
-
-# Abre directamente la interfaz gráfica interactiva:
-./agychat-x86_64.AppImage
-
-# O úsalo como CLI en terminal:
-./agychat-x86_64.AppImage -l
+./agychat-x86_64.AppImage       # Abre directamente la interfaz gráfica
+./agychat-x86_64.AppImage -l    # O como CLI en terminal
 ```
 
----
+#### 2. Debian / Ubuntu / Mint (`.deb`)
+```bash
+sudo dpkg -i agychat_2.0.0_amd64.deb
+# O con apt para resolver dependencias automáticamente:
+sudo apt install ./agychat_2.0.0_amd64.deb
+```
 
-### Opción 2: Paquete Tarball con Instalador
-Descarga `agychat-linux-x86_64.tar.gz` desde los [Releases de GitHub](https://github.com/Tiago-Pujia/agychat/releases):
+#### 3. Fedora / RHEL / openSUSE (`.rpm`)
+```bash
+sudo dnf install ./agychat-2.0.0-1.x86_64.rpm
+# o en openSUSE:
+sudo zypper install ./agychat-2.0.0-1.x86_64.rpm
+```
 
+#### 4. Arch Linux / Manjaro (`.pkg.tar.zst` o PKGBUILD)
+```bash
+sudo pacman -U agychat-2.0.0-1-x86_64.pkg.tar.zst
+```
+*(También se incluye el archivo `PKGBUILD` para compilar directamente con `makepkg -si`)*.
+
+#### 5. Tarball Independiente con Instalador (`.tar.gz`)
 ```bash
 tar -xvf agychat-linux-x86_64.tar.gz
 cd agychat
 ./install.sh
 ```
-El instalador registrará automáticamente el binario precompilado en `~/.local/bin/agychat`, el icono oficial y el lanzador en tu menú de aplicaciones del sistema.
+Registra el binario en `~/.local/bin/agychat`, iconos y acceso de escritorio.
 
 ---
 
-### Opción 3: Compilar desde Fuente (con Git y Cargo)
+### 🪟 Windows (64-bit)
 
+1. Descarga `agychat-windows-x86_64.zip` desde los [Releases de GitHub](https://github.com/Tiago-Pujia/agychat/releases).
+2. Descomprime el archivo en cualquier carpeta (ej: `C:\agychat`).
+3. Ejecuta `agychat.exe` haciendo doble clic (para abrir la interfaz gráfica) o agrégalo a tu `PATH` para usarlo desde PowerShell o CMD:
+```powershell
+.\agychat.exe -l
+.\agychat.exe -g
+```
+
+---
+
+### 🍎 macOS (Universal: Apple Silicon M1/M2/M3 & Intel)
+
+1. Descarga `agychat-macos-universal.tar.gz` o `agychat-macos-universal.zip` desde [Releases de GitHub](https://github.com/Tiago-Pujia/agychat/releases).
+2. Descomprime y mueve `agychat` a `/usr/local/bin` o `~/.local/bin`:
+```bash
+tar -xvf agychat-macos-universal.tar.gz
+chmod +x agychat
+sudo mv agychat /usr/local/bin/
+```
+3. Ejecuta `agychat -g` o `agychat -l`.
+
+---
+
+### 🛠️ Compilar desde Fuente (Cargo & Rust)
+
+Requiere Rust 1.75+ y Cargo:
 ```bash
 git clone https://github.com/Tiago-Pujia/agychat.git
 cd agychat
-chmod +x install.sh
-./install.sh
+cargo build --release
+# O en Linux usar el instalador automatizado:
+chmod +x install.sh && ./install.sh
 ```
-El script compilará automáticamente con `cargo build --release` e instalará el binario y el acceso de escritorio.
 
 ---
 

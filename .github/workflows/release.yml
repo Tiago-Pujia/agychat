@@ -1,4 +1,4 @@
-name: Release & Build
+name: Release & Multiplatform Build
 
 on:
   push:
@@ -13,17 +13,29 @@ permissions:
 
 jobs:
   build-linux:
-    name: Build Release (Linux x86_64)
+    name: Build Linux (AppImage, Deb, RPM, Arch, Tarball)
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install system dependencies (Slint, GUI & AppImage)
+      - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libfontconfig1-dev libx11-dev libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev librsvg2-bin libfuse2 wget
+          sudo apt-get install -y \
+            libfontconfig1-dev \
+            libx11-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libxcb1-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            librsvg2-bin \
+            libfuse2 \
+            wget \
+            rpm \
+            zstd
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -37,26 +49,126 @@ jobs:
       - name: Test binary execution
         run: ./target/release/agychat --help
 
-      - name: Package AppImage and Tarball
+      - name: Package Linux Distributions
         run: |
-          chmod +x package_appimage.sh install.sh uninstall.sh
-          ./package_appimage.sh
+          chmod +x package_linux.sh install.sh uninstall.sh
+          ./package_linux.sh
 
-      - name: Upload Build Artifacts
+      - name: Upload Linux Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: agychat-linux-x86_64-packages
+          name: agychat-linux-packages
           path: |
-            dist/agychat-x86_64.AppImage
-            dist/agychat-linux-x86_64.tar.gz
+            dist/agychat-*.AppImage
+            dist/agychat_*.deb
+            dist/agychat-*.rpm
+            dist/agychat-*.pkg.tar.zst
+            dist/agychat-linux-*.tar.gz
+            PKGBUILD
 
-      - name: Create or Update GitHub Release (on tag)
-        if: startsWith(github.ref, 'refs/tags/v')
+  build-windows:
+    name: Build Windows (x86_64)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build in Release mode
+        run: cargo build --release --locked
+
+      - name: Test binary execution
+        run: .\target\release\agychat.exe --help
+
+      - name: Package Windows ZIP
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/agychat-windows-x86_64
+          Copy-Item target/release/agychat.exe dist/agychat-windows-x86_64/
+          Copy-Item agychat.svg dist/agychat-windows-x86_64/
+          if (Test-Path agychat.png) { Copy-Item agychat.png dist/agychat-windows-x86_64/ }
+          Copy-Item README.md dist/agychat-windows-x86_64/
+          Compress-Archive -Path dist/agychat-windows-x86_64/* -DestinationPath dist/agychat-windows-x86_64.zip
+
+      - name: Upload Windows Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: agychat-windows-packages
+          path: |
+            dist/agychat-windows-x86_64.zip
+
+  build-macos:
+    name: Build macOS (Universal Binary x86_64 + Apple Silicon)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust with Apple Silicon and Intel targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build Apple Silicon (aarch64-apple-darwin)
+        run: cargo build --release --locked --target aarch64-apple-darwin
+
+      - name: Build Intel (x86_64-apple-darwin)
+        run: cargo build --release --locked --target x86_64-apple-darwin
+
+      - name: Package macOS Universal Binary
+        run: |
+          mkdir -p dist/agychat-macos-universal
+          lipo -create -output dist/agychat-macos-universal/agychat \
+            target/aarch64-apple-darwin/release/agychat \
+            target/x86_64-apple-darwin/release/agychat
+          chmod +x dist/agychat-macos-universal/agychat
+          ./dist/agychat-macos-universal/agychat --help
+
+          cp agychat.svg dist/agychat-macos-universal/
+          [ -f agychat.png ] && cp agychat.png dist/agychat-macos-universal/
+          cp README.md dist/agychat-macos-universal/
+
+          tar -czf dist/agychat-macos-universal.tar.gz -C dist/agychat-macos-universal .
+          (cd dist && zip -r agychat-macos-universal.zip agychat-macos-universal)
+
+      - name: Upload macOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: agychat-macos-packages
+          path: |
+            dist/agychat-macos-universal.tar.gz
+            dist/agychat-macos-universal.zip
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [build-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: List collected release assets
+        run: ls -la release-artifacts/
+
+      - name: Create or Update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            dist/agychat-x86_64.AppImage
-            dist/agychat-linux-x86_64.tar.gz
+          files: release-artifacts/*
           draft: false
           prerelease: false
           generate_release_notes: true
