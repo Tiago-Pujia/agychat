@@ -17,6 +17,27 @@ export struct ConversationRow {
     is_imported: bool,
 }
 
+export struct TreeItem {
+    id: string,
+    short_id: string,
+    title: string,
+    project_id: string,
+    project_name: string,
+    local_path: string,
+    steps: int,
+    relative_time: string,
+    compact_time: string,
+    full_date: string,
+    status_text: string,
+    is_copy: bool,
+    is_imported: bool,
+    is_active: bool,
+    is_project: bool,
+    is_expanded: bool,
+    is_empty_placeholder: bool,
+    item_count: int,
+}
+
 export component AppWindow inherits Window {
     title: "agychat — Antigravity Chat Manager";
     icon: @image-url("../agychat.svg");
@@ -26,9 +47,18 @@ export component AppWindow inherits Window {
     preferred-height: 680px;
     background: Theme.bg-window;
 
-    // Propiedades de la lista y selección
+    // Modo de vista actual: "tree" (por defecto estilo Antigravity) o "table"
+    in-out property <string> view_mode: "tree";
+
+    // Propiedades de la lista y selección (Tabla)
     in-out property <[ConversationRow]> conversations: [];
     in-out property <int> selected_index: -1;
+
+    // Propiedades del Árbol Jerárquico
+    in-out property <[TreeItem]> tree_items: [];
+    in-out property <int> selected_tree_index: -1;
+
+    // Selección compartida
     in-out property <string> selected_id: "";
     in-out property <string> selected_title: "";
     in-out property <string> search_text: "";
@@ -86,6 +116,13 @@ export component AppWindow inherits Window {
     callback row_double_clicked(int, string);
     callback row_right_clicked(int, string, length, length);
 
+    // Callbacks de Vista en Árbol
+    callback view_mode_changed(string);
+    callback toggle_project_expanded(string);
+    callback tree_row_selected(int, string);
+    callback tree_row_double_clicked(int, string);
+    callback tree_row_right_clicked(int, string, length, length);
+
     callback action_details();
     callback action_duplicate();
     callback action_export();
@@ -101,6 +138,23 @@ export component AppWindow inherits Window {
 
     callback import_browse_archive();
     callback import_browse_workspace();
+
+    // Manejador global de la tecla Escape para cerrar modales y menú contextual
+    forward-focus: key_handler;
+    key_handler := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.Escape {
+                root.show_context_menu = false;
+                root.show_details = false;
+                root.show_duplicate = false;
+                root.show_import = false;
+                root.show_delete = false;
+                accept
+            } else {
+                reject
+            }
+        }
+    }
 
     // Layout Principal de la Ventana
     VerticalLayout {
@@ -201,6 +255,59 @@ export component AppWindow inherits Window {
                 }
 
                 Rectangle { horizontal-stretch: 1; }
+
+                // Selector de Vista: Árbol vs Tabla
+                Rectangle {
+                    background: #111622;
+                    border-width: 1px;
+                    border-color: Theme.border-subtle;
+                    border-radius: Theme.radius-sm;
+                    height: 28px;
+                    y: (parent.height - self.height) / 2;
+
+                    HorizontalLayout {
+                        padding: 2px;
+                        spacing: 2px;
+
+                        Rectangle {
+                            border-radius: 4px;
+                            background: root.view_mode == "tree" ? Theme.accent-blue : (tree_btn_touch.has-hover ? #ffffff10 : #00000000);
+                            HorizontalLayout {
+                                padding-left: 8px;
+                                padding-right: 8px;
+                                Text {
+                                    text: "🌲 Árbol";
+                                    font-size: 11px;
+                                    font-weight: 600;
+                                    color: root.view_mode == "tree" ? #ffffff : Theme.text-subtle;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            tree_btn_touch := TouchArea {
+                                clicked => { root.view_mode_changed("tree"); }
+                            }
+                        }
+
+                        Rectangle {
+                            border-radius: 4px;
+                            background: root.view_mode == "table" ? Theme.accent-blue : (tbl_btn_touch.has-hover ? #ffffff10 : #00000000);
+                            HorizontalLayout {
+                                padding-left: 8px;
+                                padding-right: 8px;
+                                Text {
+                                    text: "📋 Tabla";
+                                    font-size: 11px;
+                                    font-weight: 600;
+                                    color: root.view_mode == "table" ? #ffffff : Theme.text-subtle;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            tbl_btn_touch := TouchArea {
+                                clicked => { root.view_mode_changed("table"); }
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -210,8 +317,8 @@ export component AppWindow inherits Window {
             background: #ffffff0a;
         }
 
-        // 3. Encabezados de la Tabla
-        Rectangle {
+        // 3. Encabezados de la Tabla (solo visibles en modo tabla)
+        if root.view_mode == "table": Rectangle {
             background: Theme.bg-header;
             height: 36px;
 
@@ -301,14 +408,201 @@ export component AppWindow inherits Window {
             }
         }
 
-        // Línea divisoria
-        Rectangle {
+        // Línea divisoria de tabla
+        if root.view_mode == "table": Rectangle {
             height: 1px;
             background: Theme.border-subtle;
         }
 
-        // 4. Lista Virtualizada de Conversaciones
-        table_list := ListView {
+        // 4a. Vista en Árbol Jerárquico por Proyecto (Estilo Antigravity)
+        if root.view_mode == "tree": tree_list := ListView {
+            vertical-stretch: 1;
+
+            for item[idx] in root.tree_items: Rectangle {
+                height: item.is_project ? 34px : 38px;
+                background: (!item.is_project && !item.is_empty_placeholder && root.selected_id == item.id)
+                    ? #2563eb30
+                    : (row_touch.has-hover ? Theme.bg-surface-hover : #00000000);
+
+                // Línea separadora sutil
+                Rectangle {
+                    y: parent.height - 1px;
+                    height: 1px;
+                    background: item.is_project ? #ffffff0d : #ffffff04;
+                }
+
+                // Indicador de selección lateral para chats
+                if !item.is_project && !item.is_empty_placeholder && root.selected_id == item.id: Rectangle {
+                    x: 0px;
+                    width: 3px;
+                    height: parent.height;
+                    background: Theme.accent-blue;
+                }
+
+                // CASO 1: Cabecera de Proyecto / Carpeta
+                if item.is_project: HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 18px;
+                    spacing: 8px;
+                    alignment: start;
+
+                    Text {
+                        text: item.is_expanded ? "▾" : "▸";
+                        font-size: 11px;
+                        color: #94a3b8;
+                        vertical-alignment: center;
+                    }
+
+                    Text {
+                        text: item.is_expanded ? "📂" : "📁";
+                        font-size: 14px;
+                        vertical-alignment: center;
+                    }
+
+                    Text {
+                        text: item.project_name;
+                        font-size: 13px;
+                        font-weight: 600;
+                        color: #cbd5e1;
+                        overflow: elide;
+                        vertical-alignment: center;
+                    }
+
+                    Rectangle { horizontal-stretch: 1; }
+
+                    if item.item_count > 0: Rectangle {
+                        background: #ffffff12;
+                        border-radius: 999px;
+                        height: 18px;
+                        y: (parent.height - self.height) / 2;
+
+                        HorizontalLayout {
+                            padding-left: 7px;
+                            padding-right: 7px;
+                            Text {
+                                text: item.item_count;
+                                font-size: 10px;
+                                font-weight: 600;
+                                color: Theme.text-subtle;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                }
+
+                // CASO 2: Placeholder cuando un proyecto está vacío
+                if item.is_empty_placeholder: HorizontalLayout {
+                    padding-left: 42px;
+                    padding-right: 18px;
+                    alignment: start;
+
+                    Text {
+                        text: "No conversations yet";
+                        font-size: 12px;
+                        color: #64748b;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // CASO 3: Fila de Conversación / Chat
+                if !item.is_project && !item.is_empty_placeholder: HorizontalLayout {
+                    padding-left: 36px;
+                    padding-right: 18px;
+                    spacing: 10px;
+                    alignment: start;
+
+                    Text {
+                        text: item.title;
+                        font-size: 13px;
+                        font-weight: root.selected_id == item.id ? 600 : 400;
+                        color: root.selected_id == item.id ? #ffffff : #e2e8f0;
+                        overflow: elide;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+
+                    if item.is_copy: Rectangle {
+                        background: #a855f725;
+                        border-width: 1px;
+                        border-color: #a855f750;
+                        border-radius: 4px;
+                        height: 18px;
+                        y: (parent.height - self.height) / 2;
+                        HorizontalLayout {
+                            padding-left: 6px;
+                            padding-right: 6px;
+                            Text {
+                                text: "Copia";
+                                font-size: 9px;
+                                font-weight: 700;
+                                color: #c084fc;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+
+                    if item.is_imported: Rectangle {
+                        background: #10b98125;
+                        border-width: 1px;
+                        border-color: #10b98150;
+                        border-radius: 4px;
+                        height: 18px;
+                        y: (parent.height - self.height) / 2;
+                        HorizontalLayout {
+                            padding-left: 6px;
+                            padding-right: 6px;
+                            Text {
+                                text: "Importado";
+                                font-size: 9px;
+                                font-weight: 700;
+                                color: #34d399;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+
+                    if item.is_active: Rectangle {
+                        width: 8px;
+                        height: 8px;
+                        border-radius: 4px;
+                        background: #38bdf8;
+                        y: (parent.height - self.height) / 2;
+                    }
+
+                    if item.compact_time != "": Text {
+                        text: item.compact_time;
+                        font-size: 11px;
+                        color: #64748b;
+                        vertical-alignment: center;
+                    }
+                }
+
+                row_touch := TouchArea {
+                    clicked => {
+                        if item.is_project {
+                            root.toggle_project_expanded(item.project_id);
+                        } else if !item.is_empty_placeholder {
+                            root.tree_row_selected(idx, item.id);
+                        }
+                    }
+                    double_clicked => {
+                        if !item.is_project && !item.is_empty_placeholder {
+                            root.tree_row_double_clicked(idx, item.id);
+                        }
+                    }
+                    pointer_event(event) => {
+                        if event.button == PointerEventButton.right && event.kind == PointerEventKind.up {
+                            if !item.is_project && !item.is_empty_placeholder {
+                                root.tree_row_right_clicked(idx, item.id, self.mouse-x, 100px + idx * 38px + tree_list.content-y + self.mouse-y);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4b. Lista Virtualizada de Conversaciones (Modo Tabla)
+        if root.view_mode == "table": table_list := ListView {
             vertical-stretch: 1;
 
             for item[idx] in root.conversations: Rectangle {
@@ -477,7 +771,7 @@ export component AppWindow inherits Window {
                     }
                     pointer_event(event) => {
                         if event.button == PointerEventButton.right && event.kind == PointerEventKind.up {
-                            root.row_right_clicked(idx, item.id, self.mouse-x, self.mouse-y);
+                            root.row_right_clicked(idx, item.id, self.mouse-x, 137px + idx * 42px + table_list.content-y + self.mouse-y);
                         }
                     }
                 }
@@ -485,7 +779,7 @@ export component AppWindow inherits Window {
         }
 
         // Estado vacío si no hay resultados
-        if root.conversations.length == 0: Rectangle {
+        if (root.view_mode == "tree" && root.tree_items.length == 0) || (root.view_mode == "table" && root.conversations.length == 0): Rectangle {
             vertical-stretch: 1;
             VerticalLayout {
                 alignment: center;
@@ -615,19 +909,41 @@ export component AppWindow inherits Window {
 
     // Menú contextual flotante (Click derecho con emojis)
     if root.show_context_menu: Rectangle {
-        x: root.menu_x;
-        y: root.menu_y;
-        width: 230px;
-        background: #171d28;
-        border-width: 1px;
-        border-color: #ffffff20;
-        border-radius: Theme.radius-md;
-        drop-shadow-blur: 20px;
-        drop-shadow-color: #000000aa;
+        width: 100%;
+        height: 100%;
+        x: 0px;
+        y: 0px;
 
-        VerticalLayout {
-            padding: 6px;
-            spacing: 2px;
+        // Backdrop transparente: al hacer clic en cualquier parte exterior, se cierra el menú
+        TouchArea {
+            clicked => {
+                root.show_context_menu = false;
+            }
+            pointer_event(event) => {
+                if event.kind == PointerEventKind.up {
+                    root.show_context_menu = false;
+                }
+            }
+        }
+
+        Rectangle {
+            x: root.menu_x;
+            y: root.menu_y;
+            width: 230px;
+            background: #171d28;
+            border-width: 1px;
+            border-color: #ffffff20;
+            border-radius: Theme.radius-md;
+            drop-shadow-blur: 20px;
+            drop-shadow-color: #000000aa;
+
+            TouchArea {
+                // Absorber clics dentro del menú
+            }
+
+            VerticalLayout {
+                padding: 6px;
+                spacing: 2px;
 
             Rectangle {
                 height: 30px;
@@ -750,6 +1066,7 @@ export component AppWindow inherits Window {
             }
         }
     }
+}
 
     // Modal 1: Detalles
     DetailsModal {

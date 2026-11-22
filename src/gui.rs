@@ -6,11 +6,13 @@ use crate::db::{
 use crate::ls_client::get_live_ls_info;
 use crate::models::ConversationSummary;
 use crate::utils::{
-    format_bytes, format_relative_time, get_known_projects, resolve_project_and_workspace,
+    format_bytes, format_compact_time, format_relative_time, get_known_projects,
+    resolve_project_and_workspace,
 };
 use arboard::Clipboard;
 use chrono::{DateTime, Utc};
 use slint::{ComponentHandle, ModelRc, VecModel};
+use std::collections::HashSet;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -25,16 +27,24 @@ struct GuiState {
     active_filter: String,
     sort_column: usize,
     sort_asc: bool,
+    view_mode: String,
+    collapsed_projects: HashSet<String>,
+    expanded_projects: HashSet<String>,
 }
 
 pub fn launch_gui() -> Result<(), slint::PlatformError> {
     let main_window = AppWindow::new()?;
+    main_window.set_view_mode("tree".into());
+
     let state = Arc::new(Mutex::new(GuiState {
         all_conversations: Vec::new(),
         search_query: String::new(),
         active_filter: "all".to_string(),
         sort_column: 3, // Por defecto ordenar por fecha de modificación
         sort_asc: false,
+        view_mode: "tree".to_string(),
+        collapsed_projects: HashSet::new(),
+        expanded_projects: HashSet::new(),
     }));
 
     // Helper para mostrar Toasts temporales
@@ -196,13 +206,68 @@ pub fn launch_gui() -> Result<(), slint::PlatformError> {
         });
     }
 
-    // Callback Selección de Fila
+    // Callback Cambio de Vista (Árbol vs Tabla)
     {
         let weak = main_window.as_weak();
         let state = Arc::clone(&state);
-        main_window.on_row_selected(move |idx, id| {
+        let toast = show_toast.clone();
+        main_window.on_view_mode_changed(move |mode| {
             if let Some(w) = weak.upgrade() {
-                w.set_selected_index(idx);
+                let mut st = state.lock().unwrap();
+                st.view_mode = mode.to_string();
+                w.set_view_mode(mode.clone());
+                apply_filter_and_sort(&w, &st, None);
+                let msg = if mode.as_str() == "tree" {
+                    "Vista de Árbol activada"
+                } else {
+                    "Vista de Tabla activada"
+                };
+                toast(msg);
+            }
+        });
+    }
+
+    // Callback Expandir / Colapsar Proyecto en Árbol
+    {
+        let weak = main_window.as_weak();
+        let state = Arc::clone(&state);
+        main_window.on_toggle_project_expanded(move |proj_id| {
+            if let Some(w) = weak.upgrade() {
+                let mut st = state.lock().unwrap();
+                let pid = proj_id.to_string();
+
+                let is_expanded = if st.expanded_projects.contains(&pid) {
+                    true
+                } else if st.collapsed_projects.contains(&pid) {
+                    false
+                } else {
+                    // Estado por defecto
+                    let is_current = pid.to_lowercase().contains("agychat");
+                    let has_any = st.all_conversations.iter().any(|c| c.project_id == pid);
+                    has_any || is_current
+                };
+
+                if is_expanded {
+                    st.expanded_projects.remove(&pid);
+                    st.collapsed_projects.insert(pid);
+                } else {
+                    st.collapsed_projects.remove(&pid);
+                    st.expanded_projects.insert(pid);
+                }
+
+                apply_filter_and_sort(&w, &st, None);
+            }
+        });
+    }
+
+    // Callback Selección de Fila en Árbol
+    {
+        let weak = main_window.as_weak();
+        let state = Arc::clone(&state);
+        main_window.on_tree_row_selected(move |idx, id| {
+            if let Some(w) = weak.upgrade() {
+                w.set_show_context_menu(false);
+                w.set_selected_tree_index(idx);
                 w.set_selected_id(id.clone());
                 let st = state.lock().unwrap();
                 if let Some(c) = st.all_conversations.iter().find(|c| c.conversation_id == id.as_str()) {
@@ -221,7 +286,77 @@ pub fn launch_gui() -> Result<(), slint::PlatformError> {
         w.set_show_context_menu(false);
     };
 
-    // Callback Doble Clic (Duplicar)
+    // Callback Doble Clic en Árbol (Duplicar)
+    {
+        let weak = main_window.as_weak();
+        let close_fn = close_all_modals.clone();
+        main_window.on_tree_row_double_clicked(move |_, _| {
+            if let Some(w) = weak.upgrade() {
+                close_fn(&w);
+                let title = w.get_selected_title();
+                w.set_dup_new_title(format!("{} (Copia)", title).into());
+                w.set_show_duplicate(true);
+            }
+        });
+    }
+
+    // Callback Clic Derecho en Árbol (Menú contextual)
+    {
+        let weak = main_window.as_weak();
+        let state = Arc::clone(&state);
+        let close_fn = close_all_modals.clone();
+        main_window.on_tree_row_right_clicked(move |idx, id, mx, my| {
+            if let Some(w) = weak.upgrade() {
+                close_fn(&w);
+                w.set_selected_tree_index(idx);
+                w.set_selected_id(id.clone());
+                let st = state.lock().unwrap();
+                if let Some(c) = st.all_conversations.iter().find(|c| c.conversation_id == id.as_str()) {
+                    w.set_selected_title(c.title.clone().into());
+                }
+
+                let win_size = w.window().size();
+                let win_w = win_size.width as f32;
+                let win_h = win_size.height as f32;
+                let menu_w = 230.0;
+                let menu_h = 190.0;
+
+                let x = if mx + menu_w > win_w - 20.0 {
+                    (win_w - menu_w - 20.0).max(10.0)
+                } else {
+                    mx.max(10.0)
+                };
+                let y = if my + menu_h > win_h - 40.0 {
+                    (my - menu_h).max(60.0)
+                } else {
+                    my.max(60.0)
+                };
+
+                w.set_menu_x(x);
+                w.set_menu_y(y);
+                w.set_show_context_menu(true);
+            }
+        });
+    }
+
+    // Callback Selección de Fila en Tabla
+    {
+        let weak = main_window.as_weak();
+        let state = Arc::clone(&state);
+        main_window.on_row_selected(move |idx, id| {
+            if let Some(w) = weak.upgrade() {
+                w.set_show_context_menu(false);
+                w.set_selected_index(idx);
+                w.set_selected_id(id.clone());
+                let st = state.lock().unwrap();
+                if let Some(c) = st.all_conversations.iter().find(|c| c.conversation_id == id.as_str()) {
+                    w.set_selected_title(c.title.clone().into());
+                }
+            }
+        });
+    }
+
+    // Callback Doble Clic en Tabla (Duplicar)
     {
         let weak = main_window.as_weak();
         let close_fn = close_all_modals.clone();
@@ -235,7 +370,7 @@ pub fn launch_gui() -> Result<(), slint::PlatformError> {
         });
     }
 
-    // Callback Clic Derecho (Menú contextual)
+    // Callback Clic Derecho en Tabla (Menú contextual)
     {
         let weak = main_window.as_weak();
         let state = Arc::clone(&state);
@@ -249,8 +384,26 @@ pub fn launch_gui() -> Result<(), slint::PlatformError> {
                 if let Some(c) = st.all_conversations.iter().find(|c| c.conversation_id == id.as_str()) {
                     w.set_selected_title(c.title.clone().into());
                 }
-                w.set_menu_x(mx + 10.0);
-                w.set_menu_y(my + 100.0);
+
+                let win_size = w.window().size();
+                let win_w = win_size.width as f32;
+                let win_h = win_size.height as f32;
+                let menu_w = 230.0;
+                let menu_h = 190.0;
+
+                let x = if mx + menu_w > win_w - 20.0 {
+                    (win_w - menu_w - 20.0).max(10.0)
+                } else {
+                    mx.max(10.0)
+                };
+                let y = if my + menu_h > win_h - 40.0 {
+                    (my - menu_h).max(60.0)
+                } else {
+                    my.max(60.0)
+                };
+
+                w.set_menu_x(x);
+                w.set_menu_y(y);
                 w.set_show_context_menu(true);
             }
         });
@@ -640,6 +793,182 @@ fn apply_filter_and_sort(
 
     let model: Rc<VecModel<ConversationRow>> = Rc::new(VecModel::from(rows));
     window.set_conversations(ModelRc::from(model));
+
+    // ==========================================
+    // Construcción del Árbol Jerárquico por Proyecto (Estilo Antigravity)
+    // ==========================================
+    struct ProjectGroup {
+        id: String,
+        name: String,
+        local_path: String,
+        conversations: Vec<ConversationSummary>,
+    }
+
+    let mut project_groups: Vec<ProjectGroup> = Vec::new();
+
+    // 1. Proyectos conocidos de ~/.gemini/config/projects/
+    for p in &known_projects {
+        project_groups.push(ProjectGroup {
+            id: p.id.clone(),
+            name: p.name.clone(),
+            local_path: p.folder_uri.replace("file://", ""),
+            conversations: Vec::new(),
+        });
+    }
+
+    // 2. Asociar conversaciones filtradas a su proyecto correspondiente
+    let mut unassigned: Vec<ConversationSummary> = Vec::new();
+    for c in &filtered {
+        let (proj_name, _) = resolve_project_and_workspace(&c.project_id, &c.workspace_uris, &known_projects);
+        if let Some(group) = project_groups.iter_mut().find(|g| g.id == c.project_id || g.name == proj_name) {
+            group.conversations.push(c.clone());
+        } else {
+            unassigned.push(c.clone());
+        }
+    }
+
+    // 3. Agrupar conversaciones que no pertenezcan a proyectos conocidos (ej: "(Sin workspace)")
+    if !unassigned.is_empty() {
+        let mut extra_map: std::collections::BTreeMap<String, Vec<ConversationSummary>> = std::collections::BTreeMap::new();
+        for c in unassigned {
+            let (proj_name, _) = resolve_project_and_workspace(&c.project_id, &c.workspace_uris, &known_projects);
+            extra_map.entry(proj_name).or_default().push(c);
+        }
+        for (name, convs) in extra_map {
+            project_groups.push(ProjectGroup {
+                id: name.clone(),
+                name,
+                local_path: String::new(),
+                conversations: convs,
+            });
+        }
+    }
+
+    // 4. Si hay filtro o búsqueda activos, omitir proyectos que no tengan chats
+    let is_filtering = !q.is_empty() || filter != "all";
+    if is_filtering {
+        project_groups.retain(|g| !g.conversations.is_empty());
+    }
+
+    // Ordenar chats dentro de cada proyecto por fecha descendente
+    for g in &mut project_groups {
+        g.conversations.sort_by(|a, b| b.last_modified_time.cmp(&a.last_modified_time));
+    }
+
+    // 5. Generar filas de TreeItem para el modelo de Slint
+    let mut tree_rows: Vec<TreeItem> = Vec::new();
+    let mut new_selected_tree_index = -1;
+
+    for group in &project_groups {
+        let has_chats = !group.conversations.is_empty();
+        let is_current = group.name.to_lowercase().contains("agychat");
+        let default_expanded = has_chats || is_current;
+
+        let is_expanded = if is_filtering {
+            true // durante búsqueda siempre expandido para ver resultados
+        } else if state.expanded_projects.contains(&group.id) {
+            true
+        } else if state.collapsed_projects.contains(&group.id) {
+            false
+        } else {
+            default_expanded
+        };
+
+        // Fila 1: Cabecera de Proyecto
+        tree_rows.push(TreeItem {
+            id: String::new().into(),
+            short_id: String::new().into(),
+            title: String::new().into(),
+            project_id: group.id.clone().into(),
+            project_name: group.name.clone().into(),
+            local_path: group.local_path.clone().into(),
+            steps: 0,
+            relative_time: String::new().into(),
+            compact_time: String::new().into(),
+            full_date: String::new().into(),
+            status_text: String::new().into(),
+            is_copy: false,
+            is_imported: false,
+            is_active: false,
+            is_project: true,
+            is_expanded,
+            is_empty_placeholder: false,
+            item_count: group.conversations.len() as i32,
+        });
+
+        // Si está expandido, agregar chats o placeholder
+        if is_expanded {
+            if has_chats {
+                for c in &group.conversations {
+                    let short_id = if c.conversation_id.len() >= 8 {
+                        format!("{}...", &c.conversation_id[..8])
+                    } else {
+                        c.conversation_id.clone()
+                    };
+
+                    let is_active = if let Ok(parsed) = DateTime::parse_from_rfc3339(&c.last_modified_time) {
+                        (now - parsed.with_timezone(&Utc)).num_hours() <= 24
+                    } else {
+                        false
+                    };
+
+                    let cur_idx = tree_rows.len() as i32;
+                    if let Some(ref tid) = target_id {
+                        if &c.conversation_id == tid {
+                            new_selected_tree_index = cur_idx;
+                        }
+                    }
+
+                    tree_rows.push(TreeItem {
+                        id: c.conversation_id.clone().into(),
+                        short_id: short_id.into(),
+                        title: if c.title.trim().is_empty() { "(Sin título)".into() } else { c.title.clone().into() },
+                        project_id: group.id.clone().into(),
+                        project_name: group.name.clone().into(),
+                        local_path: group.local_path.clone().into(),
+                        steps: c.step_count as i32,
+                        relative_time: format_relative_time(&c.last_modified_time).into(),
+                        compact_time: format_compact_time(&c.last_modified_time).into(),
+                        full_date: c.last_modified_time.clone().into(),
+                        status_text: c.status.clone().into(),
+                        is_copy: c.title.to_lowercase().contains("(copia)"),
+                        is_imported: false,
+                        is_active,
+                        is_project: false,
+                        is_expanded: false,
+                        is_empty_placeholder: false,
+                        item_count: 0,
+                    });
+                }
+            } else {
+                // Placeholder de proyecto vacío
+                tree_rows.push(TreeItem {
+                    id: String::new().into(),
+                    short_id: String::new().into(),
+                    title: String::new().into(),
+                    project_id: group.id.clone().into(),
+                    project_name: group.name.clone().into(),
+                    local_path: group.local_path.clone().into(),
+                    steps: 0,
+                    relative_time: String::new().into(),
+                    compact_time: String::new().into(),
+                    full_date: String::new().into(),
+                    status_text: String::new().into(),
+                    is_copy: false,
+                    is_imported: false,
+                    is_active: false,
+                    is_project: false,
+                    is_expanded: false,
+                    is_empty_placeholder: true,
+                    item_count: 0,
+                });
+            }
+        }
+    }
+
+    let tree_model: Rc<VecModel<TreeItem>> = Rc::new(VecModel::from(tree_rows));
+    window.set_tree_items(ModelRc::from(tree_model));
+    window.set_selected_tree_index(new_selected_tree_index);
 
     if new_selected_index >= 0 {
         window.set_selected_index(new_selected_index);

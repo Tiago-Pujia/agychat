@@ -1,6 +1,6 @@
 [package]
 name = "agychat"
-version = "2.0.1"
+version = "2.0.2"
 edition = "2021"
 description = "Antigravity Chat Manager — CLI & Slint Desktop GUI"
 authors = ["Tiago Pujia"]

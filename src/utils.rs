@@ -73,6 +73,57 @@ pub fn format_relative_time(dt_str: &str) -> String {
     }
 }
 
+/// Convierte una cadena de timestamp a formato compacto estilo Antigravity ("7m", "10h", "2d", etc.).
+pub fn format_compact_time(dt_str: &str) -> String {
+    if dt_str.is_empty() {
+        return String::new();
+    }
+
+    let clean = dt_str
+        .split('+')
+        .next()
+        .unwrap_or(dt_str)
+        .split('.')
+        .next()
+        .unwrap_or(dt_str)
+        .replace('T', " ");
+
+    let dt = chrono::NaiveDateTime::parse_from_str(clean.trim(), "%Y-%m-%d %H:%M:%S")
+        .or_else(|_| chrono::NaiveDateTime::parse_from_str(clean.trim(), "%Y-%m-%d %H:%M"));
+
+    match dt {
+        Ok(naive) => {
+            let parsed_utc = DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc);
+            let now = Utc::now();
+            let duration = now.signed_duration_since(parsed_utc);
+
+            let seconds = duration.num_seconds();
+            if seconds < 60 {
+                "ahora".to_string()
+            } else if seconds < 3600 {
+                format!("{}m", seconds / 60)
+            } else {
+                let hours = duration.num_hours();
+                if hours < 24 {
+                    format!("{}h", hours)
+                } else {
+                    let days = duration.num_days();
+                    if days < 7 {
+                        format!("{}d", days)
+                    } else if days < 30 {
+                        format!("{}sem", days / 7)
+                    } else if days < 365 {
+                        format!("{}m", days / 30)
+                    } else {
+                        format!("{}a", days / 365)
+                    }
+                }
+            }
+        }
+        Err(_) => String::new(),
+    }
+}
+
 /// Reemplazo seguro sobre slices binarios (`&[u8]`) sin decodificación UTF-8.
 /// Indispensable para no corromper blobs Protobuf en SQLite.
 pub fn replace_bytes(haystack: &[u8], needle: &[u8], replacement: &[u8]) -> Vec<u8> {
@@ -284,4 +335,13 @@ mod tests {
         assert_eq!(name2, "LibreMIEL");
         assert_eq!(path2, "/home/tiago/Proyectos/LibreMIEL");
     }
+
+    #[test]
+    fn test_format_compact_time() {
+        assert_eq!(format_compact_time(""), "");
+        let now = Utc::now();
+        let formatted = format_compact_time(&now.to_rfc3339());
+        assert_eq!(formatted, "ahora");
+    }
 }
+
