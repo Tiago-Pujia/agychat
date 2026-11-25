@@ -174,12 +174,22 @@ pub fn list_conversations_cli() {
                 println!("  (No hay conversaciones registradas en Antigravity)");
             } else {
                 for c in convs {
+                    let is_sub = c.is_subagent();
                     let display_title = if c.title.trim().is_empty() {
                         "(Sin título)".to_string()
                     } else {
                         c.title
                     };
-                    println!("  • \"{}\"  \x1b[90m[{}]\x1b[0m", display_title, c.conversation_id);
+                    let tag = if is_sub {
+                        if c.agent_name.trim().is_empty() {
+                            " [Subagente]".to_string()
+                        } else {
+                            format!(" [Subagente: {}]", c.agent_name.trim())
+                        }
+                    } else {
+                        String::new()
+                    };
+                    println!("  • \"{}\"{}  \x1b[90m[{}]\x1b[0m", display_title, tag, c.conversation_id);
                 }
             }
             println!();

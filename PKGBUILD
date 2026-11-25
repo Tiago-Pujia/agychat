@@ -1,6 +1,6 @@
 # Maintainer: Tiago Pujia <tiago@pujia.com>
 pkgname=agychat
-pkgver=2.0.2
+pkgver=2.0.3
 pkgrel=1
 pkgdesc="Antigravity Chat Manager — CLI & Slint Desktop GUI"
 arch=('x86_64')

@@ -15,6 +15,8 @@ export struct ConversationRow {
     status_text: string,
     is_copy: bool,
     is_imported: bool,
+    is_subagent: bool,
+    subagent_label: string,
 }
 
 export struct TreeItem {
@@ -31,6 +33,8 @@ export struct TreeItem {
     status_text: string,
     is_copy: bool,
     is_imported: bool,
+    is_subagent: bool,
+    subagent_label: string,
     is_active: bool,
     is_project: bool,
     is_expanded: bool,
@@ -41,7 +45,7 @@ export struct TreeItem {
 export component AppWindow inherits Window {
     title: "agychat — Antigravity Chat Manager";
     icon: @image-url("../agychat.svg");
-    min-width: 820px;
+    min-width: 880px;
     min-height: 520px;
     preferred-width: 1040px;
     preferred-height: 680px;
@@ -69,6 +73,7 @@ export component AppWindow inherits Window {
     in-out property <int> workspace_count: 0;
     in-out property <int> copies_count: 0;
     in-out property <int> recent_count: 0;
+    in-out property <int> subagents_count: 0;
 
     // Estado de Language Server y resumen de disco
     in-out property <bool> ls_connected: false;
@@ -220,7 +225,7 @@ export component AppWindow inherits Window {
             HorizontalLayout {
                 padding-left: 18px;
                 padding-right: 18px;
-                spacing: 8px;
+                spacing: 6px;
 
                 Text {
                     text: "Filtros:";
@@ -252,6 +257,12 @@ export component AppWindow inherits Window {
                     text: "Recientes (" + root.recent_count + ")";
                     active: root.active_filter == "recent";
                     clicked => { root.filter_selected("recent"); }
+                }
+
+                FilterChip {
+                    text: "Subagentes (" + root.subagents_count + ")";
+                    active: root.active_filter == "subagents";
+                    clicked => { root.filter_selected("subagents"); }
                 }
 
                 Rectangle { horizontal-stretch: 1; }
@@ -561,6 +572,26 @@ export component AppWindow inherits Window {
                         }
                     }
 
+                    if item.is_subagent: Rectangle {
+                        background: #f59e0b22;
+                        border-width: 1px;
+                        border-color: #f59e0b55;
+                        border-radius: 4px;
+                        height: 18px;
+                        y: (parent.height - self.height) / 2;
+                        HorizontalLayout {
+                            padding-left: 6px;
+                            padding-right: 6px;
+                            Text {
+                                text: item.subagent_label;
+                                font-size: 9px;
+                                font-weight: 700;
+                                color: #fbbf24;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+
                     if item.is_active: Rectangle {
                         width: 8px;
                         height: 8px;
@@ -607,7 +638,7 @@ export component AppWindow inherits Window {
 
             for item[idx] in root.conversations: Rectangle {
                 height: 42px;
-                background: root.selected_index == idx ? #2563eb30 : (item_touch.has-hover ? Theme.bg-surface-hover : #00000000);
+                background: root.selected_id == item.id ? #2563eb30 : (item_touch.has-hover ? Theme.bg-surface-hover : #00000000);
 
                 Rectangle {
                     y: parent.height - 1px;
@@ -615,7 +646,7 @@ export component AppWindow inherits Window {
                     background: #ffffff08;
                 }
 
-                if root.selected_index == idx: Rectangle {
+                if root.selected_id == item.id: Rectangle {
                     x: 0px;
                     width: 3px;
                     height: parent.height;
@@ -637,7 +668,7 @@ export component AppWindow inherits Window {
                             text: "💬 " + item.title;
                             font-size: 13px;
                             font-weight: 600;
-                            color: root.selected_index == idx ? #ffffff : #f1f5f9;
+                            color: root.selected_id == item.id ? #ffffff : #f1f5f9;
                             overflow: elide;
                             vertical-alignment: center;
                         }
@@ -677,6 +708,26 @@ export component AppWindow inherits Window {
                                     font-size: 9px;
                                     font-weight: 700;
                                     color: #34d399;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+
+                        if item.is_subagent: Rectangle {
+                            background: #f59e0b22;
+                            border-width: 1px;
+                            border-color: #f59e0b55;
+                            border-radius: 4px;
+                            height: 18px;
+                            y: (parent.height - self.height) / 2;
+                            HorizontalLayout {
+                                padding-left: 6px;
+                                padding-right: 6px;
+                                Text {
+                                    text: item.subagent_label;
+                                    font-size: 9px;
+                                    font-weight: 700;
+                                    color: #fbbf24;
                                     vertical-alignment: center;
                                 }
                             }
@@ -823,9 +874,9 @@ export component AppWindow inherits Window {
                 spacing: 10px;
 
                 Text {
-                    text: root.selected_index >= 0 ? ("Seleccionado: \"" + root.selected_title + "\" (" + root.selected_id + ")") : "Selecciona una conversación para duplicar, ver detalles, exportar o eliminar.";
+                    text: root.selected_id != "" ? ("Seleccionado: \"" + root.selected_title + "\" (" + root.selected_id + ")") : "Selecciona una conversación para duplicar, ver detalles, exportar o eliminar.";
                     font-size: 12px;
-                    color: root.selected_index >= 0 ? Theme.text-main : Theme.text-subtle;
+                    color: root.selected_id != "" ? Theme.text-main : Theme.text-subtle;
                     overflow: elide;
                     horizontal-stretch: 1;
                     vertical-alignment: center;
@@ -834,21 +885,21 @@ export component AppWindow inherits Window {
                 StyledButton {
                     text: "Detalles";
                     icon: "🗂️";
-                    enabled: root.selected_index >= 0;
+                    enabled: root.selected_id != "";
                     clicked => { root.action_details(); }
                 }
 
                 StyledButton {
                     text: "Duplicar";
                     icon: "📋";
-                    enabled: root.selected_index >= 0;
+                    enabled: root.selected_id != "";
                     clicked => { root.action_duplicate(); }
                 }
 
                 StyledButton {
                     text: "Exportar";
                     icon: "📦";
-                    enabled: root.selected_index >= 0;
+                    enabled: root.selected_id != "";
                     clicked => { root.action_export(); }
                 }
 
@@ -856,7 +907,7 @@ export component AppWindow inherits Window {
                     text: "Eliminar";
                     icon: "🗑️";
                     variant: "danger";
-                    enabled: root.selected_index >= 0;
+                    enabled: root.selected_id != "";
                     clicked => { root.action_delete(); }
                 }
             }

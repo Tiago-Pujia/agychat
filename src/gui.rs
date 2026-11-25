@@ -11,7 +11,7 @@ use crate::utils::{
 };
 use arboard::Clipboard;
 use chrono::{DateTime, Utc};
-use slint::{ComponentHandle, ModelRc, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, VecModel};
 use std::collections::HashSet;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -91,15 +91,21 @@ pub fn launch_gui() -> Result<(), slint::PlatformError> {
                     st.all_conversations = convs;
                 }
 
-                // Actualizar contadores de los chips
-                let total = st.all_conversations.len() as i32;
+                // Actualizar contadores de los chips (subagentes se contabilizan aparte)
+                let mut total = 0;
                 let mut ws_cnt = 0;
                 let mut copies_cnt = 0;
                 let mut recent_cnt = 0;
+                let mut subagents_cnt = 0;
 
                 let known_projects = get_known_projects();
                 let now = Utc::now();
                 for c in &st.all_conversations {
+                    if c.is_subagent() {
+                        subagents_cnt += 1;
+                        continue;
+                    }
+                    total += 1;
                     let (proj_name, _) = resolve_project_and_workspace(&c.project_id, &c.workspace_uris, &known_projects);
                     if proj_name != "(Sin workspace)" {
                         ws_cnt += 1;
@@ -120,6 +126,7 @@ pub fn launch_gui() -> Result<(), slint::PlatformError> {
                 w.set_workspace_count(ws_cnt);
                 w.set_copies_count(copies_cnt);
                 w.set_recent_count(recent_cnt);
+                w.set_subagents_count(subagents_cnt);
 
                 // 3. Filtrar y ordenar
                 apply_filter_and_sort(&w, &st, select_target_cid);
@@ -243,7 +250,10 @@ pub fn launch_gui() -> Result<(), slint::PlatformError> {
                 } else {
                     // Estado por defecto
                     let is_current = pid.to_lowercase().contains("agychat");
-                    let has_any = st.all_conversations.iter().any(|c| c.project_id == pid);
+                    let has_any = st
+                        .all_conversations
+                        .iter()
+                        .any(|c| !c.is_subagent() && c.project_id == pid);
                     has_any || is_current
                 };
 
@@ -264,15 +274,11 @@ pub fn launch_gui() -> Result<(), slint::PlatformError> {
     {
         let weak = main_window.as_weak();
         let state = Arc::clone(&state);
-        main_window.on_tree_row_selected(move |idx, id| {
+        main_window.on_tree_row_selected(move |_idx, id| {
             if let Some(w) = weak.upgrade() {
                 w.set_show_context_menu(false);
-                w.set_selected_tree_index(idx);
-                w.set_selected_id(id.clone());
                 let st = state.lock().unwrap();
-                if let Some(c) = st.all_conversations.iter().find(|c| c.conversation_id == id.as_str()) {
-                    w.set_selected_title(c.title.clone().into());
-                }
+                sync_selection_from_id(&w, &st, id.as_str());
             }
         });
     }
@@ -289,10 +295,18 @@ pub fn launch_gui() -> Result<(), slint::PlatformError> {
     // Callback Doble Clic en Árbol (Duplicar)
     {
         let weak = main_window.as_weak();
+        let state = Arc::clone(&state);
         let close_fn = close_all_modals.clone();
-        main_window.on_tree_row_double_clicked(move |_, _| {
+        main_window.on_tree_row_double_clicked(move |_idx, id| {
             if let Some(w) = weak.upgrade() {
                 close_fn(&w);
+                {
+                    let st = state.lock().unwrap();
+                    sync_selection_from_id(&w, &st, id.as_str());
+                }
+                if w.get_selected_id().is_empty() {
+                    return;
+                }
                 let title = w.get_selected_title();
                 w.set_dup_new_title(format!("{} (Copia)", title).into());
                 w.set_show_duplicate(true);
@@ -305,14 +319,12 @@ pub fn launch_gui() -> Result<(), slint::PlatformError> {
         let weak = main_window.as_weak();
         let state = Arc::clone(&state);
         let close_fn = close_all_modals.clone();
-        main_window.on_tree_row_right_clicked(move |idx, id, mx, my| {
+        main_window.on_tree_row_right_clicked(move |_idx, id, mx, my| {
             if let Some(w) = weak.upgrade() {
                 close_fn(&w);
-                w.set_selected_tree_index(idx);
-                w.set_selected_id(id.clone());
-                let st = state.lock().unwrap();
-                if let Some(c) = st.all_conversations.iter().find(|c| c.conversation_id == id.as_str()) {
-                    w.set_selected_title(c.title.clone().into());
+                {
+                    let st = state.lock().unwrap();
+                    sync_selection_from_id(&w, &st, id.as_str());
                 }
 
                 let win_size = w.window().size();
@@ -343,15 +355,11 @@ pub fn launch_gui() -> Result<(), slint::PlatformError> {
     {
         let weak = main_window.as_weak();
         let state = Arc::clone(&state);
-        main_window.on_row_selected(move |idx, id| {
+        main_window.on_row_selected(move |_idx, id| {
             if let Some(w) = weak.upgrade() {
                 w.set_show_context_menu(false);
-                w.set_selected_index(idx);
-                w.set_selected_id(id.clone());
                 let st = state.lock().unwrap();
-                if let Some(c) = st.all_conversations.iter().find(|c| c.conversation_id == id.as_str()) {
-                    w.set_selected_title(c.title.clone().into());
-                }
+                sync_selection_from_id(&w, &st, id.as_str());
             }
         });
     }
@@ -359,10 +367,18 @@ pub fn launch_gui() -> Result<(), slint::PlatformError> {
     // Callback Doble Clic en Tabla (Duplicar)
     {
         let weak = main_window.as_weak();
+        let state = Arc::clone(&state);
         let close_fn = close_all_modals.clone();
-        main_window.on_row_double_clicked(move |_, _| {
+        main_window.on_row_double_clicked(move |_idx, id| {
             if let Some(w) = weak.upgrade() {
                 close_fn(&w);
+                {
+                    let st = state.lock().unwrap();
+                    sync_selection_from_id(&w, &st, id.as_str());
+                }
+                if w.get_selected_id().is_empty() {
+                    return;
+                }
                 let title = w.get_selected_title();
                 w.set_dup_new_title(format!("{} (Copia)", title).into());
                 w.set_show_duplicate(true);
@@ -375,14 +391,12 @@ pub fn launch_gui() -> Result<(), slint::PlatformError> {
         let weak = main_window.as_weak();
         let state = Arc::clone(&state);
         let close_fn = close_all_modals.clone();
-        main_window.on_row_right_clicked(move |idx, id, mx, my| {
+        main_window.on_row_right_clicked(move |_idx, id, mx, my| {
             if let Some(w) = weak.upgrade() {
                 close_fn(&w);
-                w.set_selected_index(idx);
-                w.set_selected_id(id.clone());
-                let st = state.lock().unwrap();
-                if let Some(c) = st.all_conversations.iter().find(|c| c.conversation_id == id.as_str()) {
-                    w.set_selected_title(c.title.clone().into());
+                {
+                    let st = state.lock().unwrap();
+                    sync_selection_from_id(&w, &st, id.as_str());
                 }
 
                 let win_size = w.window().size();
@@ -418,6 +432,9 @@ pub fn launch_gui() -> Result<(), slint::PlatformError> {
             if let Some(w) = weak.upgrade() {
                 close_fn(&w);
                 let cid = w.get_selected_id();
+                if cid.is_empty() {
+                    return;
+                }
                 let st = state.lock().unwrap();
                 if let Some(conv) = st.all_conversations.iter().find(|c| c.conversation_id == cid.as_str()) {
                     let known_projects = get_known_projects();
@@ -498,6 +515,9 @@ pub fn launch_gui() -> Result<(), slint::PlatformError> {
         main_window.on_action_duplicate(move || {
             if let Some(w) = weak.upgrade() {
                 close_fn(&w);
+                if w.get_selected_id().is_empty() {
+                    return;
+                }
                 let title = w.get_selected_title();
                 w.set_dup_new_title(format!("{} (Copia)", title).into());
                 w.set_show_duplicate(true);
@@ -513,6 +533,9 @@ pub fn launch_gui() -> Result<(), slint::PlatformError> {
         main_window.on_confirm_duplicate(move |new_title| {
             if let Some(w) = weak.upgrade() {
                 let cid = w.get_selected_id().to_string();
+                if cid.trim().is_empty() {
+                    return;
+                }
                 let title = new_title.to_string();
                 let reload_cb = reload.clone();
                 let toast_cb = toast.clone();
@@ -543,6 +566,9 @@ pub fn launch_gui() -> Result<(), slint::PlatformError> {
         main_window.on_action_export(move || {
             if let Some(w) = weak.upgrade() {
                 let cid = w.get_selected_id().to_string();
+                if cid.trim().is_empty() {
+                    return;
+                }
                 let title = w.get_selected_title().to_string();
                 let toast_cb = toast.clone();
 
@@ -586,6 +612,9 @@ pub fn launch_gui() -> Result<(), slint::PlatformError> {
         main_window.on_action_delete(move || {
             if let Some(w) = weak.upgrade() {
                 close_fn(&w);
+                if w.get_selected_id().is_empty() {
+                    return;
+                }
                 w.set_show_delete(true);
             }
         });
@@ -597,6 +626,9 @@ pub fn launch_gui() -> Result<(), slint::PlatformError> {
         let toast = show_toast.clone();
         main_window.on_confirm_delete(move |cid| {
             let id = cid.to_string();
+            if id.trim().is_empty() {
+                return;
+            }
             let reload_cb = reload.clone();
             let toast_cb = toast.clone();
 
@@ -694,6 +726,15 @@ fn apply_filter_and_sort(
         .all_conversations
         .iter()
         .filter(|c| {
+            let is_sub = c.is_subagent();
+            if filter.as_str() == "subagents" {
+                if !is_sub {
+                    return false;
+                }
+            } else if is_sub {
+                return false;
+            }
+
             let (proj_name, local_path) = resolve_project_and_workspace(&c.project_id, &c.workspace_uris, &known_projects);
 
             // Filtro de categoría
@@ -726,7 +767,8 @@ fn apply_filter_and_sort(
                 let matches_proj = proj_name.to_lowercase().contains(&q);
                 let matches_path = local_path.to_lowercase().contains(&q);
                 let matches_id = c.conversation_id.to_lowercase().contains(&q);
-                if !matches_title && !matches_proj && !matches_path && !matches_id {
+                let matches_agent = is_sub && c.agent_name.to_lowercase().contains(&q);
+                if !matches_title && !matches_proj && !matches_path && !matches_id && !matches_agent {
                     return false;
                 }
             }
@@ -775,6 +817,7 @@ fn apply_filter_and_sort(
         } else {
             item.conversation_id.clone()
         };
+        let is_subagent = item.is_subagent();
 
         rows.push(ConversationRow {
             id: item.conversation_id.clone().into(),
@@ -788,6 +831,8 @@ fn apply_filter_and_sort(
             status_text: item.status.clone().into(),
             is_copy: item.title.to_lowercase().contains("(copia)"),
             is_imported: false,
+            is_subagent,
+            subagent_label: if is_subagent { format_subagent_label(item).into() } else { "".into() },
         });
     }
 
@@ -889,6 +934,8 @@ fn apply_filter_and_sort(
             status_text: String::new().into(),
             is_copy: false,
             is_imported: false,
+            is_subagent: false,
+            subagent_label: String::new().into(),
             is_active: false,
             is_project: true,
             is_expanded,
@@ -919,6 +966,8 @@ fn apply_filter_and_sort(
                         }
                     }
 
+                    let is_subagent = c.is_subagent();
+
                     tree_rows.push(TreeItem {
                         id: c.conversation_id.clone().into(),
                         short_id: short_id.into(),
@@ -933,6 +982,8 @@ fn apply_filter_and_sort(
                         status_text: c.status.clone().into(),
                         is_copy: c.title.to_lowercase().contains("(copia)"),
                         is_imported: false,
+                        is_subagent,
+                        subagent_label: if is_subagent { format_subagent_label(c).into() } else { String::new().into() },
                         is_active,
                         is_project: false,
                         is_expanded: false,
@@ -956,6 +1007,8 @@ fn apply_filter_and_sort(
                     status_text: String::new().into(),
                     is_copy: false,
                     is_imported: false,
+                    is_subagent: false,
+                    subagent_label: String::new().into(),
                     is_active: false,
                     is_project: false,
                     is_expanded: false,
@@ -973,11 +1026,58 @@ fn apply_filter_and_sort(
     if new_selected_index >= 0 {
         window.set_selected_index(new_selected_index);
         let sel = &filtered[new_selected_index as usize];
+        let display_title = if sel.title.trim().is_empty() {
+            "(Sin título)"
+        } else {
+            sel.title.as_str()
+        };
         window.set_selected_id(sel.conversation_id.clone().into());
-        window.set_selected_title(sel.title.clone().into());
+        window.set_selected_title(display_title.into());
     } else {
         window.set_selected_index(-1);
         window.set_selected_id("".into());
         window.set_selected_title("".into());
     }
+}
+
+fn format_subagent_label(c: &ConversationSummary) -> String {
+    let agent = c.agent_name.trim();
+    if agent.is_empty() {
+        "Subagente".to_string()
+    } else {
+        format!("Subagente · {}", agent)
+    }
+}
+
+/// Sincroniza la selección compartida y los índices activos entre las vistas de árbol y tabla.
+fn sync_selection_from_id(window: &AppWindow, state: &GuiState, id: &str) {
+    window.set_selected_id(id.into());
+
+    if let Some(c) = state.all_conversations.iter().find(|c| c.conversation_id == id) {
+        let display_title = if c.title.trim().is_empty() {
+            "(Sin título)"
+        } else {
+            c.title.as_str()
+        };
+        window.set_selected_title(display_title.into());
+    } else {
+        window.set_selected_title("".into());
+    }
+
+    let convs = window.get_conversations();
+    let table_idx = (0..convs.row_count())
+        .find(|&i| convs.row_data(i).is_some_and(|row| row.id.as_str() == id))
+        .map(|i| i as i32)
+        .unwrap_or(-1);
+    window.set_selected_index(table_idx);
+
+    let tree = window.get_tree_items();
+    let tree_idx = (0..tree.row_count())
+        .find(|&i| {
+            tree.row_data(i)
+                .is_some_and(|row| !row.is_project && !row.is_empty_placeholder && row.id.as_str() == id)
+        })
+        .map(|i| i as i32)
+        .unwrap_or(-1);
+    window.set_selected_tree_index(tree_idx);
 }

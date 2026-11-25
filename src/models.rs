@@ -11,6 +11,16 @@ pub struct ConversationSummary {
     pub status: String,
     pub last_user_input_time: String,
     pub last_user_input_step_index: String,
+    pub parent_conversation_id: String,
+    pub nesting_depth: i64,
+    pub agent_name: String,
+}
+
+impl ConversationSummary {
+    /// Indica si la conversación corresponde a un subagente anidado.
+    pub fn is_subagent(&self) -> bool {
+        !self.parent_conversation_id.trim().is_empty() || self.nesting_depth > 0
+    }
 }
 
 #[derive(Debug, Clone, Default)]
